@@ -18,6 +18,7 @@ const config = {
   supabaseUrl: process.env.SUPABASE_URL || pkg.portfolio.supabaseUrl,
   supabaseKey: process.env.SUPABASE_KEY || pkg.portfolio.supabaseKey,
   bucket: pkg.portfolio.bucket || 'portfolio',
+  keyDomain: pkg.portfolio.keyDomain || 'thanhhaivideo.com', // tên miền cho tài khoản ẩn của mã quản trị
 };
 
 // Nội dung mới nhất: Supabase -> content/content.json

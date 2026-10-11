@@ -2,7 +2,8 @@
 -- Thiết lập Supabase cho Portfolio (chạy 1 lần trong Supabase → SQL Editor)
 -- Chạy lại nhiều lần cũng an toàn (không mất dữ liệu đã có).
 --
--- TRƯỚC KHI CHẠY: sửa email ở mục 7 thành email của bạn (tài khoản root).
+-- Sau khi chạy: vào https://thanhhaivideo.com/admin/ bấm "Tạo mã root" để lấy
+-- mã quản trị đầu tiên (chỉ làm được 1 lần, khi chưa có mã root nào).
 -- =====================================================================
 
 -- 1. Nội dung trang web (chỉ 1 dòng, id = 1)
@@ -21,13 +22,15 @@ create table if not exists public.site_content_history (
   created_by text
 );
 
--- 3. Danh sách email được quyền sửa web
---    root: toàn quyền + quản lý danh sách này | admin: sửa nội dung
+-- 3. Mã quản trị: mỗi mã ứng với 1 tài khoản ẩn (email dạng key-xxxx@...)
+--    root: toàn quyền + tạo/thu hồi mã | admin: sửa nội dung
+--    Xoá dòng ở bảng này = thu hồi mã ngay lập tức.
 create table if not exists public.portfolio_admins (
   email text primary key check (email = lower(email)),
   role text not null default 'admin' check (role in ('root', 'admin')),
   created_at timestamptz not null default now()
 );
+alter table public.portfolio_admins add column if not exists label text;
 
 create or replace function public.is_portfolio_admin() returns boolean
 language sql stable security definer set search_path = public as $$
@@ -38,6 +41,24 @@ create or replace function public.is_portfolio_root() returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from public.portfolio_admins where email = lower(auth.jwt() ->> 'email') and role = 'root');
 $$;
+
+-- Cần tạo mã root lần đầu không?
+create or replace function public.portfolio_needs_setup() returns boolean
+language sql stable security definer set search_path = public as $$
+  select not exists (select 1 from public.portfolio_admins where role = 'root');
+$$;
+
+-- Nhận quyền root cho tài khoản đang đăng nhập — chỉ được khi chưa có root nào
+create or replace function public.portfolio_claim_root(p_label text default 'Chủ website') returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'Cần đăng nhập'; end if;
+  if exists (select 1 from public.portfolio_admins where role = 'root') then
+    raise exception 'Đã có mã root, không thể tạo thêm theo cách này';
+  end if;
+  insert into public.portfolio_admins (email, role, label)
+  values (lower(auth.jwt() ->> 'email'), 'root', left(coalesce(p_label, 'Chủ website'), 60));
+end $$;
 
 -- Tự lưu lịch sử + ghi thời gian, người sửa mỗi khi cập nhật
 create or replace function public.site_content_on_update() returns trigger
@@ -94,6 +115,9 @@ grant select on public.site_content_history to authenticated;
 grant select, insert, update, delete on public.portfolio_admins to authenticated;
 grant execute on function public.is_portfolio_admin() to anon, authenticated;
 grant execute on function public.is_portfolio_root() to anon, authenticated;
+grant execute on function public.portfolio_needs_setup() to anon, authenticated;
+revoke execute on function public.portfolio_claim_root(text) from public, anon;
+grant execute on function public.portfolio_claim_root(text) to authenticated;
 
 -- 5. Kho ảnh/video (công khai để web hiển thị, chỉ admin được tải lên/xoá)
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -349,8 +373,3 @@ values (1, $seed${
   ]
 }$seed$::jsonb, 'setup')
 on conflict (id) do nothing;
-
--- 7. Tài khoản root — SỬA EMAIL DƯỚI ĐÂY trước khi chạy
-insert into public.portfolio_admins (email, role)
-values (lower('ban@example.com'), 'root')
-on conflict (email) do update set role = 'root';

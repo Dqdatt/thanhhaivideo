@@ -85,12 +85,14 @@
   // Đổi lỗi Supabase sang tiếng Việt dễ hiểu
   function sbError(error) {
     const msg = (error && (error.message || error.error_description)) || String(error);
-    if (/invalid login credentials/i.test(msg)) return 'Sai email hoặc mật khẩu';
+    if (/invalid login credentials/i.test(msg)) return 'Mã quản trị không đúng hoặc đã bị xoá';
     if (/email not confirmed/i.test(msg)) return 'Email chưa được xác nhận';
     if (/rate limit|too many/i.test(msg)) return 'Thao tác quá nhiều lần, thử lại sau ít phút';
     if (/jwt expired|session/i.test(msg)) return 'Phiên đăng nhập đã hết hạn, hãy đăng nhập lại';
     if (/row-level security|permission denied/i.test(msg)) return 'Tài khoản không có quyền thực hiện thao tác này';
     if (/site_content|schema cache/i.test(msg)) return 'Chưa thiết lập database — hãy chạy file supabase/setup.sql';
+    if (/signups? not allowed|signup.*disabled/i.test(msg)) return 'Supabase đang tắt đăng ký: hãy bật "Allow new users to sign up" (Authentication → Sign In / Providers)';
+    if (/already registered/i.test(msg)) return 'Mã bị trùng, hãy thử tạo lại';
     if (/payload too large|exceeded the maximum/i.test(msg)) return 'File quá lớn (tối đa 50MB)';
     if (/mime type/i.test(msg)) return 'Định dạng file không được hỗ trợ';
     if (/failed to fetch|network/i.test(msg)) return 'Không kết nối được máy chủ, kiểm tra mạng';
@@ -106,6 +108,52 @@
     if (!row) throw new Error('Chưa có nội dung trong database — hãy chạy file supabase/setup.sql');
     state.version = row.updated_at;
     return P.normalizeContent(row.content);
+  }
+
+  /* ---- Mã quản trị ----
+   * Mã dạng tvk_<id>_<bí mật>. Mỗi mã là 1 tài khoản Supabase ẩn: email key-<id>@<tên miền>, mật khẩu = phần bí mật.
+   * Quyền sửa web nằm ở bảng portfolio_admins — xoá dòng = thu hồi mã. */
+  const KEY_RE = /^tvk_([a-z0-9]{8})_([A-Za-z0-9]{32})$/;
+  function randomStr(n, chars) {
+    const bytes = crypto.getRandomValues(new Uint8Array(n));
+    return Array.from(bytes, (b) => chars[b % chars.length]).join('');
+  }
+  const keyEmail = (id) => `key-${id}@${CFG.keyDomain}`;
+  function newKey() {
+    const id = randomStr(8, 'abcdefghijklmnopqrstuvwxyz0123456789');
+    const secret = randomStr(32, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
+    return { key: `tvk_${id}_${secret}`, id, email: keyEmail(id), password: secret };
+  }
+  function parseKey(key) {
+    const m = String(key || '').trim().match(KEY_RE);
+    return m ? { id: m[1], email: keyEmail(m[1]), password: m[2] } : null;
+  }
+  const keyIdOf = (email) => ((email || '').match(/^key-([a-z0-9]{8})@/) || [])[1] || email;
+
+  // Tạo tài khoản ẩn cho mã mới bằng client riêng (không làm mất phiên đang đăng nhập)
+  async function registerKey(client, k) {
+    const data = must(await client.auth.signUp({ email: k.email, password: k.password }));
+    if (!data.session) throw new Error('Supabase đang bật xác nhận email: hãy tắt "Confirm email" (Authentication → Sign In / Providers → Email)');
+    return data;
+  }
+
+  // Hộp thoại hiện mã vừa tạo (chỉ hiện 1 lần)
+  function showKey(key, title) {
+    return new Promise((resolve) => {
+      const input = h('input', { class: 'input', readonly: true, value: key, style: { fontFamily: 'ui-monospace, monospace', fontSize: '12.5px' } });
+      modal({
+        title,
+        onClose: resolve,
+        body: h('div', { class: 'stack' },
+          h('p', { style: { margin: 0 } }, 'Copy và cất mã này ở nơi an toàn. ', h('b', {}, 'Mã chỉ hiện một lần'), ', đóng hộp thoại là không xem lại được.'),
+          h('div', { class: 'row' }, input, h('button', { class: 'btn btn--primary', onclick: async () => {
+            try { await navigator.clipboard.writeText(key); toast('Đã copy mã'); } catch { input.select(); }
+          } }, icon('copy'), 'Copy')),
+          h('p', { class: 'dim', style: { margin: 0 } }, `Đăng nhập tại ${SITE}admin/ bằng cách dán mã này.`)),
+        foot: (close) => [h('button', { class: 'btn btn--primary', onclick: close }, 'Đã copy, đóng')],
+      });
+      setTimeout(() => input.select(), 50);
+    });
   }
 
   const publicUrl = (path) => bucket().getPublicUrl(path).data.publicUrl;
@@ -504,15 +552,17 @@
 
   function renderLogin(message) {
     const err = h('p', { class: 'error' }, message || '');
-    const email = h('input', { name: 'email', type: 'email', autocomplete: 'username', required: true, placeholder: 'ban@email.com' });
-    const pass = h('input', { name: 'password', type: 'password', autocomplete: 'current-password', required: true });
+    const keyInput = h('input', { name: 'key', type: 'password', autocomplete: 'off', spellcheck: 'false', required: true, placeholder: 'tvk_…' });
     const btn = h('button', { class: 'btn btn--primary', type: 'submit' }, 'Đăng nhập');
+    const setupBox = h('div', { class: 'stack hidden' });
     loginShell({ onsubmit: async (e) => {
       e.preventDefault();
       err.textContent = '';
+      const k = parseKey(keyInput.value);
+      if (!k) { err.textContent = 'Mã quản trị không đúng định dạng (bắt đầu bằng tvk_)'; return; }
       btn.disabled = true;
       try {
-        must(await sb.auth.signInWithPassword({ email: email.value.trim(), password: pass.value }));
+        must(await sb.auth.signInWithPassword({ email: k.email, password: k.password }));
         await signIn();
         await boot();
       } catch (ex) {
@@ -523,80 +573,57 @@
     } },
       h('div', { class: 'brand' }, h('span', { class: 'brand__mark' }, icon('film')), 'Quản trị Portfolio'),
       h('h1', {}, 'Đăng nhập'),
-      h('p', {}, 'Quản lý video, bố cục và thông tin trang web.'),
-      h('label', { class: 'field' }, h('span', {}, 'Email'), email),
-      h('label', { class: 'field' }, h('span', {}, 'Mật khẩu'), pass),
-      err, btn,
-      h('button', { type: 'button', class: 'btn btn--ghost', onclick: () => renderForgot(email.value.trim()) }, 'Quên mật khẩu?'),
+      h('p', {}, 'Dán mã quản trị được cấp để quản lý video, bố cục và thông tin trang web.'),
+      h('label', { class: 'field' }, h('span', {}, 'Mã quản trị'), keyInput),
+      err, btn, setupBox,
       h('a', { href: SITE, style: { fontSize: '13px', textAlign: 'center' } }, '← Về trang chủ'));
-    email.focus();
-  }
+    keyInput.focus();
 
-  function renderForgot(prefill) {
-    const msg = h('p', { class: 'error' });
-    const email = h('input', { type: 'email', required: true, value: prefill || '', placeholder: 'ban@email.com' });
-    const btn = h('button', { class: 'btn btn--primary', type: 'submit' }, 'Gửi link đặt lại mật khẩu');
-    loginShell({ onsubmit: async (e) => {
-      e.preventDefault();
-      btn.disabled = true;
-      try {
-        must(await sb.auth.resetPasswordForEmail(email.value.trim(), { redirectTo: location.origin + location.pathname }));
-        msg.style.color = 'var(--ok)';
-        msg.textContent = 'Đã gửi! Mở email và bấm vào link để đặt mật khẩu mới.';
-      } catch (ex) {
-        msg.style.color = '';
-        msg.textContent = ex.message;
-      } finally {
-        btn.disabled = false;
+    // Lần đầu (chưa có mã root): cho phép tạo mã root
+    sb.rpc('portfolio_needs_setup').then(({ data, error }) => {
+      if (error) {
+        if (/portfolio_needs_setup|schema cache|function/i.test(error.message)) {
+          setupBox.classList.remove('hidden');
+          setupBox.append(h('p', { class: 'dim', style: { margin: 0 } }, 'Database chưa được thiết lập: hãy chạy file supabase/setup.sql trong Supabase SQL Editor.'));
+        }
+        return;
       }
-    } },
-      h('h1', {}, 'Quên mật khẩu'),
-      h('p', {}, 'Nhập email đăng nhập, hệ thống sẽ gửi link đặt lại mật khẩu.'),
-      h('label', { class: 'field' }, h('span', {}, 'Email'), email),
-      msg, btn,
-      h('button', { type: 'button', class: 'btn btn--ghost', onclick: () => renderLogin() }, '← Quay lại đăng nhập'));
-    email.focus();
+      if (!data) return;
+      setupBox.classList.remove('hidden');
+      const setupBtn = h('button', { type: 'button', class: 'btn' }, icon('plus'), 'Tạo mã root (lần đầu)');
+      setupBtn.addEventListener('click', async () => {
+        err.textContent = '';
+        setupBtn.disabled = true;
+        try {
+          const k = newKey();
+          await registerKey(sb, k);
+          must(await sb.rpc('portfolio_claim_root', { p_label: 'Chủ website' }));
+          await showKey(k.key, 'Mã root của bạn');
+          await signIn();
+          await boot();
+        } catch (ex) {
+          await sb.auth.signOut();
+          err.textContent = ex.message;
+        } finally {
+          setupBtn.disabled = false;
+        }
+      });
+      setupBox.append(
+        h('p', { class: 'dim', style: { margin: 0 } }, 'Chưa có mã quản trị nào. Tạo mã root để bắt đầu (chỉ làm được 1 lần).'),
+        setupBtn);
+    });
   }
 
-  // Mở từ link trong email đặt lại mật khẩu / lời mời
-  function renderNewPassword() {
-    const msg = h('p', { class: 'error' });
-    const p1 = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: 8 });
-    const p2 = h('input', { type: 'password', autocomplete: 'new-password', required: true, minlength: 8 });
-    const btn = h('button', { class: 'btn btn--primary', type: 'submit' }, 'Lưu mật khẩu mới');
-    loginShell({ onsubmit: async (e) => {
-      e.preventDefault();
-      if (p1.value !== p2.value) { msg.textContent = 'Mật khẩu nhập lại không khớp'; return; }
-      btn.disabled = true;
-      try {
-        must(await sb.auth.updateUser({ password: p1.value }));
-        history.replaceState(null, '', location.pathname);
-        toast('Đã đặt mật khẩu mới');
-        await signIn();
-        await boot();
-      } catch (ex) {
-        msg.textContent = ex.message;
-      } finally {
-        btn.disabled = false;
-      }
-    } },
-      h('h1', {}, 'Đặt mật khẩu mới'),
-      h('label', { class: 'field' }, h('span', {}, 'Mật khẩu mới (tối thiểu 8 ký tự)'), p1),
-      h('label', { class: 'field' }, h('span', {}, 'Nhập lại'), p2),
-      msg, btn);
-    p1.focus();
-  }
-
-  // Sau khi đăng nhập: kiểm tra email có trong danh sách được quyền sửa web không
+  // Sau khi đăng nhập: kiểm tra mã còn quyền sửa web không
   async function signIn() {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) throw new Error('Phiên đăng nhập đã hết hạn, hãy đăng nhập lại');
-    const row = must(await sb.from('portfolio_admins').select('role').eq('email', (user.email || '').toLowerCase()).maybeSingle());
+    const row = must(await sb.from('portfolio_admins').select('role, label').eq('email', (user.email || '').toLowerCase()).maybeSingle());
     if (!row) {
       await sb.auth.signOut();
-      throw new Error(`Tài khoản ${user.email} chưa được cấp quyền sửa web. Liên hệ người quản lý.`);
+      throw new Error('Mã quản trị này đã bị thu hồi. Liên hệ người quản lý để được cấp mã mới.');
     }
-    state.user = { username: user.email, role: row.role };
+    state.user = { username: row.label || `Mã ${keyIdOf(user.email)}`, email: user.email, role: row.role };
   }
 
   /* ================= Khung ứng dụng ================= */
@@ -1151,79 +1178,70 @@
   /* ================= Tab: Tài khoản ================= */
 
   function viewAccount() {
-    const p1 = h('input', { type: 'password', autocomplete: 'new-password', minlength: 8 });
-    const p2 = h('input', { type: 'password', autocomplete: 'new-password', minlength: 8 });
-    const pwPanel = h('form', { class: 'panel stack', onsubmit: async (e) => {
-      e.preventDefault();
-      if (p1.value.length < 8) return toast('Mật khẩu tối thiểu 8 ký tự', 'err');
-      if (p1.value !== p2.value) return toast('Mật khẩu nhập lại không khớp', 'err');
-      try {
-        must(await sb.auth.updateUser({ password: p1.value }));
-        p1.value = p2.value = '';
-        toast('Đã đổi mật khẩu');
-      } catch (err) { toast(err.message, 'err'); }
-    } },
-      h('h3', {}, 'Đổi mật khẩu'),
-      h('div', { class: 'grid-2' },
-        h('label', { class: 'field' }, h('span', {}, 'Mật khẩu mới (≥ 8 ký tự)'), p1),
-        h('label', { class: 'field' }, h('span', {}, 'Nhập lại'), p2)),
-      h('div', {}, h('button', { class: 'btn btn--primary', type: 'submit' }, 'Đổi mật khẩu')));
-
     const out = h('div', {},
-      pageHead('Tài khoản', `Đăng nhập: ${state.user.username} (${state.user.role === 'root' ? 'root — toàn quyền' : 'admin — quản lý nội dung'}).`),
-      pwPanel);
+      pageHead('Tài khoản', `Đang đăng nhập bằng mã "${state.user.username}" (${state.user.role === 'root' ? 'root — toàn quyền' : 'admin — quản lý nội dung'}).`),
+      h('div', { class: 'panel stack' }, h('h3', {}, 'Mã trên máy này'),
+        h('p', { class: 'dim', style: { margin: 0 } }, 'Mã quản trị giống như mật khẩu. Nếu dùng máy chung, hãy đăng xuất sau khi dùng xong.'),
+        h('div', {}, h('button', { class: 'btn btn--danger', onclick: logout }, icon('logout'), 'Đăng xuất'))));
 
     if (state.user.role === 'root') {
-      const projectRef = (CFG.supabaseUrl.match(/https:\/\/([^.]+)\./) || [])[1];
-      const usersBox = h('div', {}, h('p', { class: 'muted' }, 'Đang tải…'));
-      const loadAdmins = async () => {
+      const listBox = h('div', {}, h('p', { class: 'muted' }, 'Đang tải…'));
+      const loadKeys = async () => {
         try {
-          const rows = must(await sb.from('portfolio_admins').select('email, role, created_at').order('created_at'));
-          usersBox.replaceChildren(h('table', { class: 'table' },
-            h('thead', {}, h('tr', {}, h('th', {}, 'Email'), h('th', {}, 'Quyền'), h('th', {}, 'Ngày thêm'), h('th', {}))),
-            h('tbody', {}, rows.map((u) => h('tr', {},
-              h('td', {}, u.email, u.email === state.user.username.toLowerCase() ? h('span', { class: 'dim' }, ' (bạn)') : null),
-              h('td', {}, h('span', { class: `role role--${u.role}` }, u.role)),
-              h('td', { class: 'dim' }, new Date(u.created_at).toLocaleDateString('vi-VN')),
-              h('td', { style: { textAlign: 'right' } }, u.email === state.user.username.toLowerCase() ? null :
-                h('button', { class: 'btn btn--sm btn--danger', onclick: async () => {
-                  if (!(await confirmBox(`Gỡ quyền sửa web của ${u.email}?`, { ok: 'Gỡ quyền', danger: true }))) return;
-                  try { must(await sb.from('portfolio_admins').delete().eq('email', u.email)); loadAdmins(); } catch (err) { toast(err.message, 'err'); }
-                } }, 'Gỡ quyền')))))));
+          const rows = must(await sb.from('portfolio_admins').select('email, role, label, created_at').order('created_at'));
+          listBox.replaceChildren(h('table', { class: 'table' },
+            h('thead', {}, h('tr', {}, h('th', {}, 'Tên mã'), h('th', {}, 'Quyền'), h('th', {}, 'Ngày tạo'), h('th', {}))),
+            h('tbody', {}, rows.map((r) => {
+              const mine = r.email === (state.user.email || '').toLowerCase();
+              return h('tr', {},
+                h('td', {}, r.label || `Mã ${keyIdOf(r.email)}`, h('span', { class: 'dim' }, ` · ${keyIdOf(r.email)}`), mine ? h('span', { class: 'dim' }, ' (đang dùng)') : null),
+                h('td', {}, h('span', { class: `role role--${r.role}` }, r.role)),
+                h('td', { class: 'dim' }, new Date(r.created_at).toLocaleDateString('vi-VN')),
+                h('td', { style: { textAlign: 'right' } }, mine ? null :
+                  h('button', { class: 'btn btn--sm btn--danger', onclick: async () => {
+                    if (!(await confirmBox(`Thu hồi mã "${r.label || keyIdOf(r.email)}"? Người dùng mã này sẽ không sửa được web nữa.`, { ok: 'Thu hồi', danger: true }))) return;
+                    try { must(await sb.from('portfolio_admins').delete().eq('email', r.email)); toast('Đã thu hồi mã'); loadKeys(); } catch (err) { toast(err.message, 'err'); }
+                  } }, 'Thu hồi')));
+            }))));
         } catch (err) {
-          usersBox.replaceChildren(h('p', { class: 'error' }, err.message));
+          listBox.replaceChildren(h('p', { class: 'error' }, err.message));
         }
       };
 
-      const ne = h('input', { type: 'email', placeholder: 'khachhang@email.com', autocomplete: 'off' });
-      const nr = h('select', {}, h('option', { value: 'admin' }, 'admin — quản lý nội dung'), h('option', { value: 'root' }, 'root — toàn quyền + quản lý danh sách'));
-      const addForm = h('form', { class: 'stack', onsubmit: async (e) => {
+      const label = h('input', { placeholder: 'Ví dụ: Khách hàng Thanh Hải', maxlength: 60 });
+      const role = h('select', {}, h('option', { value: 'admin' }, 'admin — quản lý nội dung'), h('option', { value: 'root' }, 'root — toàn quyền + tạo/thu hồi mã'));
+      const createBtn = h('button', { class: 'btn btn--primary', type: 'submit' }, icon('plus'), 'Tạo mã');
+      const createForm = h('form', { class: 'stack', onsubmit: async (e) => {
         e.preventDefault();
-        const email = ne.value.trim().toLowerCase();
-        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return toast('Email không hợp lệ', 'err');
+        createBtn.disabled = true;
         try {
-          must(await sb.from('portfolio_admins').upsert({ email, role: nr.value }));
-          toast(`Đã cấp quyền cho ${email}`);
-          ne.value = '';
-          loadAdmins();
-        } catch (err) { toast(err.message, 'err'); }
+          const k = newKey();
+          // Client tạm, không lưu phiên -> không đăng xuất mã root đang dùng
+          const tmp = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey, {
+            auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'portfolio-tmp' },
+          });
+          await registerKey(tmp, k);
+          must(await sb.from('portfolio_admins').insert({ email: k.email, role: role.value, label: label.value.trim() || null }));
+          label.value = '';
+          loadKeys();
+          await showKey(k.key, 'Mã quản trị mới');
+        } catch (err) {
+          toast(err.message, 'err');
+        } finally {
+          createBtn.disabled = false;
+        }
       } },
         h('div', { class: 'grid-2' },
-          h('label', { class: 'field' }, h('span', {}, 'Email'), ne),
-          h('label', { class: 'field' }, h('span', {}, 'Quyền'), nr)),
-        h('div', {}, h('button', { class: 'btn btn--primary', type: 'submit' }, icon('plus'), 'Cấp quyền')));
+          h('label', { class: 'field' }, h('span', {}, 'Tên mã (để nhớ là của ai)'), label),
+          h('label', { class: 'field' }, h('span', {}, 'Quyền'), role)),
+        h('div', {}, createBtn));
 
       out.append(
-        h('div', { class: 'panel' }, h('h3', {}, 'Người được quyền sửa web'), usersBox),
-        h('div', { class: 'panel stack' }, h('h3', {}, 'Thêm người quản lý (ví dụ khách hàng)'),
-          h('ol', { class: 'steps' },
-            h('li', {}, 'Tạo tài khoản đăng nhập: mở ',
-              h('a', { href: `https://supabase.com/dashboard/project/${projectRef}/auth/users`, target: '_blank', rel: 'noopener' }, 'Supabase → Authentication → Users'),
-              ' → Add user → Create new user, nhập email + mật khẩu, tick "Auto Confirm User". (Hoặc chọn "Send invitation" để khách tự đặt mật khẩu qua email.)'),
-            h('li', {}, 'Cấp quyền sửa web cho email đó bằng ô bên dưới.'),
-            h('li', {}, 'Gửi khách link ', h('b', {}, SITE + 'admin/'), ' cùng email/mật khẩu. Khách có thể tự đổi mật khẩu trong tab Tài khoản.')),
-          addForm));
-      loadAdmins();
+        h('div', { class: 'panel' }, h('h3', {}, 'Danh sách mã quản trị'), listBox),
+        h('div', { class: 'panel stack' }, h('h3', {}, 'Tạo mã cho khách hàng'),
+          h('p', { class: 'dim', style: { margin: 0 } }, 'Tạo mã, copy và gửi cho khách. Khách vào trang admin, dán mã là dùng được. Muốn ngừng cho phép thì bấm Thu hồi.'),
+          createForm));
+      loadKeys();
     }
     return out;
   }
@@ -1299,13 +1317,7 @@
     renderApp();
   }
 
-  // Link đặt lại mật khẩu / lời mời từ email
-  let recovering = /type=(recovery|invite)/.test(location.hash);
   sb.auth.onAuthStateChange((event) => {
-    if (event === 'PASSWORD_RECOVERY') {
-      recovering = true;
-      renderNewPassword();
-    }
     if (event === 'SIGNED_OUT' && state.user) {
       state.user = null;
       state.content = null;
@@ -1314,7 +1326,6 @@
   });
 
   sb.auth.getSession().then(async ({ data: { session } }) => {
-    if (recovering && session) return renderNewPassword();
     if (!session) return renderLogin();
     try {
       await signIn();
