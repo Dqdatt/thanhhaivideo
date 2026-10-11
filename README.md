@@ -1,6 +1,6 @@
 # Portfolio cho Video Editor
 
-Trang portfolio tối giản theo phong cách "Videograph": web tĩnh trên **GitHub Pages**, nội dung (chữ, link video), hình ảnh và video lưu trên **Supabase**. Có trang **`/admin`** để khách hàng tự thêm video, sửa nội dung và sắp xếp bố cục; đăng nhập chỉ bằng cách **dán mã quản trị**.
+Trang portfolio tối giản theo phong cách "Videograph": web tĩnh trên **GitHub Pages**, nội dung (chữ, link video), hình ảnh và video lưu trên **Supabase**. Có trang **`/admin`** (đăng nhập bằng 1 tài khoản đơn giản: tên `admin` và mật khẩu) để tự thêm video, sửa nội dung và sắp xếp bố cục.
 
 - **Trang web**: https://thanhhaivideo.com
 - **Trang quản trị**: https://thanhhaivideo.com/admin/
@@ -8,7 +8,7 @@ Trang portfolio tối giản theo phong cách "Videograph": web tĩnh trên **Gi
 ## Cách hoạt động
 
 ```
-/admin (dán mã quản trị)
+/admin (tên đăng nhập + mật khẩu)
    │  Lưu  → bảng site_content   (Supabase Postgres, bảo vệ bằng RLS)
    │  Ảnh/video → bucket portfolio (Supabase Storage, tối đa 50MB/file)
    ▼
@@ -34,7 +34,7 @@ Người xem mở thanhhaivideo.com
 - **Bố cục**: kéo thả đổi thứ tự khối; bật/tắt, thêm, nhân bản, xoá khối; số cột; tỉ lệ khung (16:9, 4:3, 1:1, 9:16)
 - **Cài đặt**: logo, favicon, chế độ sáng/tối, màu, font, liên hệ, mạng xã hội, SEO
 - **Thư viện file**: ảnh và video trên Supabase Storage
-- **Tài khoản**: root tạo mã quản trị cho khách (mã chỉ hiện 1 lần) và thu hồi mã bất cứ lúc nào
+- **Tài khoản**: đổi mật khẩu, đăng xuất
 - **Sao lưu**: 50 phiên bản gần nhất, khôi phục 1 click, xuất/nhập file JSON
 
 ---
@@ -47,17 +47,21 @@ Project: `kgnflmnwkmxuvbqjphjc`. Cấu hình kết nối nằm trong `package.js
 
 > Chỉ **publishable key** (`sb_publishable_…`) được để trong code; key này công khai theo thiết kế, dữ liệu được bảo vệ bằng RLS. **Không bao giờ** đưa **secret key** (`sb_secret_…`) vào code hay repo.
 
-**a) Tạo bảng, phân quyền, kho file**: Supabase → **SQL Editor** → **New query**, dán toàn bộ file [`supabase/setup.sql`](supabase/setup.sql) và bấm **Run**. Chạy lại nhiều lần cũng an toàn.
+**a) Tạo bảng, phân quyền, kho file** (đã làm sẵn bằng Supabase CLI): chạy file [`supabase/setup.sql`](supabase/setup.sql). Chạy lại nhiều lần cũng an toàn, không mất dữ liệu.
 
-**b) Cho phép tạo mã quản trị**: **Authentication → Sign In / Providers → Email**:
-- **Allow new users to sign up**: **bật**
-- **Confirm email**: **tắt**
+```bash
+supabase link --project-ref kgnflmnwkmxuvbqjphjc
+supabase db query --linked -f supabase/setup.sql
+```
 
-Mỗi mã quản trị là một tài khoản ẩn, được tạo ngay trong trang admin. Người lạ có tự đăng ký cũng không sửa được gì, vì quyền sửa web chỉ dành cho mã nằm trong bảng `portfolio_admins`, do root quản lý.
+Hoặc dán file vào Supabase → **SQL Editor** → **Run**.
 
-**c) Tạo mã root**: ngay sau khi chạy SQL, vào `https://thanhhaivideo.com/admin/` → bấm **Tạo mã root (lần đầu)** → **copy và cất mã** (`tvk_…`).
+**b) Tạo tài khoản đăng nhập**: Supabase → **Authentication → Users → Add user → Create new user**:
+- Email: `admin@thanhhaivideo.com`
+- Password: mật khẩu bạn chọn
+- Tick **Auto Confirm User**
 
-Nút này chỉ xuất hiện khi chưa có mã root nào. Lần sau đăng nhập bằng cách dán mã đó.
+Trang `/admin` đăng nhập bằng tên **`admin`** và mật khẩu đó. Không cần chỉnh thêm cài đặt nào: chỉ tài khoản có trong bảng `portfolio_admins` mới sửa được web.
 
 ### 2. Bật GitHub Pages
 
@@ -94,13 +98,15 @@ dig +short thanhhaivideo.com
 
 Kết quả đúng là 4 IP `185.199.10x.153`.
 
-### 4. Cấp mã cho khách hàng
+### 4. Giao cho khách hàng
 
-1. Đăng nhập `/admin` bằng mã root → tab **Tài khoản** → **Tạo mã cho khách hàng**. Đặt tên (ví dụ "Khách Thanh Hải") và quyền **admin**, rồi bấm **Tạo mã**.
-2. Copy mã (chỉ hiện 1 lần) và gửi cho khách. Khách vào `https://thanhhaivideo.com/admin/` và dán mã là dùng được.
-3. Muốn ngừng cho phép: bấm **Thu hồi** ở dòng của mã đó; mã mất quyền ngay lập tức.
+Gửi khách link `https://thanhhaivideo.com/admin/`, tên đăng nhập `admin` và mật khẩu. Khách tự đổi mật khẩu trong tab **Tài khoản**.
 
-> Mã quản trị giống như mật khẩu: không chia sẻ công khai. Lỡ làm lộ thì thu hồi và tạo mã mới.
+Muốn thêm một tài khoản riêng (ví dụ `khach`):
+1. Tạo user `khach@thanhhaivideo.com` trong **Authentication → Users**.
+2. Thêm email đó vào bảng `portfolio_admins` (**Table Editor**, hoặc chạy SQL `insert into portfolio_admins (email) values ('khach@thanhhaivideo.com');`).
+
+Người đó đăng nhập bằng tên `khach`.
 
 ---
 
@@ -145,6 +151,6 @@ scripts/
 
 **Lỡ tay xoá?** Vào **Sao lưu** trong admin, chọn phiên bản trước rồi bấm **Khôi phục**, sau đó bấm **Lưu thay đổi**.
 
-**Mất mã quản trị?** Root tạo mã mới cho người đó (và thu hồi mã cũ). Nếu mất **mã root duy nhất**: vào Supabase → **Table Editor** → bảng `portfolio_admins`, xoá dòng có role `root`, rồi vào `/admin` bấm **Tạo mã root (lần đầu)** lại.
+**Quên mật khẩu?** Vào Supabase → **Authentication → Users**, bấm vào `admin@thanhhaivideo.com` để đặt mật khẩu mới.
 
 **Supabase project bị tạm dừng?** Gói miễn phí tạm dừng project sau 7 ngày không có truy cập vào database. Web vẫn hiện bản HTML build sẵn (GitHub Actions gọi Supabase mỗi 6 giờ, nên thường giữ project hoạt động); nếu bị dừng, vào Supabase bấm **Restore project**.

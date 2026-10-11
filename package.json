@@ -15,6 +15,6 @@
     "supabaseUrl": "https://kgnflmnwkmxuvbqjphjc.supabase.co",
     "supabaseKey": "sb_publishable_VznM48XIHY5zUJtt0VU7rw_2UIxYJiG",
     "bucket": "portfolio",
-    "keyDomain": "thanhhaivideo.com"
+    "loginDomain": "thanhhaivideo.com"
   }
 }
