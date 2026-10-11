@@ -1,7 +1,7 @@
 {
   "name": "thanhhai-video-portfolio",
-  "version": "2.0.0",
-  "description": "Portfolio cho video editor, chạy trên GitHub Pages, trang /admin lưu nội dung qua GitHub",
+  "version": "3.0.0",
+  "description": "Portfolio cho video editor: web tĩnh trên GitHub Pages, nội dung & ảnh lưu trên Supabase",
   "private": true,
   "scripts": {
     "build": "node scripts/build.js",
@@ -12,7 +12,8 @@
     "node": ">=18"
   },
   "portfolio": {
-    "repo": "Dqdatt/thanhhaivideo",
-    "branch": "main"
+    "supabaseUrl": "https://kgnflmnwkmxuvbqjphjc.supabase.co",
+    "supabaseKey": "sb_publishable_VznM48XIHY5zUJtt0VU7rw_2UIxYJiG",
+    "bucket": "portfolio"
   }
 }

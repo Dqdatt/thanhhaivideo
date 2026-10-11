@@ -1,6 +1,6 @@
 # Portfolio cho Video Editor
 
-Trang portfolio tối giản theo phong cách "Videograph", chạy miễn phí trên **GitHub Pages**, có trang **`/admin`** để khách hàng tự thêm link video, sửa nội dung và sắp xếp bố cục mà không cần đụng vào code.
+Trang portfolio tối giản theo phong cách "Videograph": web tĩnh trên **GitHub Pages**, nội dung và file lưu trên **Supabase**. Có trang **`/admin`** để khách hàng tự thêm video, sửa nội dung và sắp xếp bố cục mà không cần đụng vào code.
 
 - **Trang web**: https://thanhhaivideo.com
 - **Trang quản trị**: https://thanhhaivideo.com/admin/
@@ -8,47 +8,67 @@ Trang portfolio tối giản theo phong cách "Videograph", chạy miễn phí t
 ## Cách hoạt động
 
 ```
-Khách bấm "Lưu" trong /admin
-        │  (GitHub API, dùng mã truy cập)
-        ▼
-content/content.json được commit vào repo
-        │  (GitHub Actions tự chạy)
-        ▼
-scripts/build.js render ra HTML tĩnh  ──►  GitHub Pages  ──►  thanhhaivideo.com
-                                  (khoảng 30–60 giây)
+/admin (đăng nhập email + mật khẩu)
+   │  Lưu  → bảng site_content   (Supabase Postgres, bảo vệ bằng RLS)
+   │  Ảnh/video → bucket portfolio (Supabase Storage, tối đa 50MB/file)
+   ▼
+Người xem mở thanhhaivideo.com
+   ├─ nhận ngay HTML build sẵn (nhanh, tốt cho SEO)
+   └─ trang hỏi Supabase: có bản mới hơn không? → có thì hiện bản mới ngay
 ```
 
-- Không có server, không có database. Toàn bộ nội dung nằm trong repo: `content/content.json` (chữ, video, bố cục, cài đặt) và `content/uploads/` (ảnh).
-- Trang admin xem trước thay đổi ngay trong trình duyệt. Bấm Lưu thì web thật cập nhật sau khoảng 1 phút; góc trên admin có báo trạng thái.
-- Mỗi lần lưu là một commit, nên tab **Sao lưu** khôi phục được về bất kỳ phiên bản nào.
+- Bấm **Lưu** là web đổi ngay, không cần build lại.
+- GitHub Actions build lại HTML mỗi khi có commit và mỗi 6 giờ, để bản cho Google luôn mới.
+- Mỗi lần lưu, database tự giữ bản trước (50 bản gần nhất), nên khôi phục được trong tab **Sao lưu**.
 
 ## Tính năng
 
 **Trang web**
 - Banner, Dịch vụ, Giới thiệu, Lưới video, Đánh giá, Liên hệ
-- Bấm vào video để mở popup phát ngay trên trang. Hỗ trợ link **YouTube (cả Shorts), Vimeo, Google Drive, TikTok, Facebook, file .mp4**, ảnh bìa lấy tự động
-- Lọc video theo danh mục, responsive trên điện thoại, HTML render sẵn nên tốt cho SEO
+- Bấm vào video để mở popup phát ngay trên trang. Hỗ trợ link **YouTube (cả Shorts), Vimeo, Google Drive, TikTok, Facebook** và **video tải lên (.mp4/.webm/.mov)**, ảnh bìa lấy tự động
+- Lọc video theo danh mục, responsive trên điện thoại
 - **Giao diện sáng / tối / tự động theo thiết bị**, có nút ☀/☾ để người xem tự đổi
 
 **Trang quản trị**
-- **Video**: dán link là tự nhận diện nền tảng và lấy tiêu đề; kéo thả sắp xếp; ẩn/hiện; danh mục; ảnh bìa riêng
+- **Video**: dán link hoặc tải file video lên; tự nhận diện nền tảng và lấy tiêu đề; kéo thả sắp xếp; ẩn/hiện; danh mục; ảnh bìa riêng
 - **Bố cục**: kéo thả đổi thứ tự khối; bật/tắt, thêm, nhân bản, xoá khối; số cột; tỉ lệ khung (16:9, 4:3, 1:1, 9:16)
 - **Cài đặt**: logo, favicon, chế độ sáng/tối, màu, font, liên hệ, mạng xã hội, SEO
-- **Thư viện ảnh**: upload ảnh (tối đa 10MB/ảnh) vào repo
-- **Sao lưu**: lịch sử mọi lần lưu, khôi phục 1 click, xuất/nhập file JSON
+- **Thư viện file**: ảnh và video trên Supabase Storage
+- **Tài khoản**: đổi mật khẩu, quên mật khẩu qua email; root cấp hoặc gỡ quyền sửa web theo email
+- **Sao lưu**: 50 phiên bản gần nhất, khôi phục 1 click, xuất/nhập file JSON
 
 ---
 
-## Cài đặt lần đầu (chủ repo làm 1 lần)
+## Cài đặt lần đầu (chủ dự án làm 1 lần)
 
-### 1. Bật GitHub Pages
+### 1. Thiết lập Supabase
 
-1. Vào repo → **Settings** → **Pages**.
-2. Ở **Build and deployment → Source**, chọn **GitHub Actions**.
-3. Vào tab **Actions**, mở lần chạy "Deploy GitHub Pages" gần nhất và bấm **Re-run all jobs** (hoặc **Run workflow**).
-4. Chạy xong (có dấu ✓), web có tại `https://dqdatt.github.io/thanhhaivideo/`.
+Project: `kgnflmnwkmxuvbqjphjc`. Cấu hình kết nối nằm trong `package.json → portfolio`.
 
-### 2. Trỏ tên miền thanhhaivideo.com
+> Chỉ **publishable key** (`sb_publishable_…`) được để trong code; key này công khai theo thiết kế, dữ liệu được bảo vệ bằng RLS. **Không bao giờ** đưa **secret key** (`sb_secret_…`) vào code hay repo.
+
+**a) Tạo bảng, phân quyền, kho file**
+1. Mở file [`supabase/setup.sql`](supabase/setup.sql) và sửa `ban@example.com` ở mục 7 thành email của bạn.
+2. Vào Supabase → **SQL Editor** → **New query**, dán toàn bộ file và bấm **Run**.
+
+Chạy lại nhiều lần cũng an toàn.
+
+**b) Tạo tài khoản đăng nhập cho bạn**: **Authentication → Users → Add user → Create new user**. Nhập đúng email ở bước a cùng mật khẩu, tick **Auto Confirm User**.
+
+**c) Cấu hình đăng nhập**: **Authentication → URL Configuration**
+- **Site URL**: `https://thanhhaivideo.com/admin/`
+- **Redirect URLs**: thêm `https://thanhhaivideo.com/admin/` và `http://localhost:4000/admin/`
+
+(Cần cho email quên mật khẩu và email mời.)
+
+**d) Tắt tự đăng ký**: **Authentication → Sign In / Providers → Email**, tắt **Allow new users to sign up**. Chỉ người bạn tạo mới đăng nhập được; dù có ai lọt vào, họ cũng không sửa được gì nếu email không nằm trong danh sách quyền.
+
+### 2. Bật GitHub Pages
+
+1. Repo → **Settings** → **Pages** → **Source**: **GitHub Actions**.
+2. Tab **Actions** → chạy lại "Deploy GitHub Pages" (**Re-run all jobs** hoặc **Run workflow**).
+
+### 3. Trỏ tên miền thanhhaivideo.com
 
 **a) Thêm bản ghi DNS** ở trang quản lý tên miền (Mắt Bão, PA Vietnam, Tenten, iNET, Nhân Hòa…):
 
@@ -78,21 +98,17 @@ dig +short thanhhaivideo.com
 
 Kết quả đúng là 4 IP `185.199.10x.153`.
 
-### 3. Cấp mã truy cập cho khách hàng
+### 4. Thêm khách hàng làm người quản lý
 
-Khách **không cần tài khoản GitHub**. Chủ repo tạo một mã truy cập riêng cho khách:
+1. Supabase → **Authentication → Users → Add user**:
+   - **Create new user**: nhập email + mật khẩu, tick **Auto Confirm User**; hoặc
+   - **Send invitation**: khách nhận email và tự đặt mật khẩu.
+2. Vào `https://thanhhaivideo.com/admin/` → tab **Tài khoản** → **Thêm người quản lý**, nhập email khách và chọn quyền **admin**.
+3. Gửi khách link `/admin/`. Khách tự đổi mật khẩu trong tab **Tài khoản**, hoặc dùng **Quên mật khẩu?** ở màn đăng nhập.
 
-1. Mở https://github.com/settings/personal-access-tokens/new
-2. **Token name**: `khach-hang` · **Expiration**: ví dụ 1 năm
-3. **Repository access** → **Only select repositories** → chọn `Dqdatt/thanhhaivideo`
-4. **Permissions → Repository permissions**:
-   - **Contents**: Read and write (bắt buộc)
-   - **Actions**: Read-only (để admin hiện trạng thái cập nhật web)
-5. Bấm **Generate token**, copy mã (`github_pat_…`) và gửi cho khách. Khách vào `https://thanhhaivideo.com/admin/` và dán mã để đăng nhập.
+Muốn gỡ quyền: tab **Tài khoản** → **Gỡ quyền** (hoặc xoá user trong Supabase).
 
-Muốn thu hồi quyền: vào https://github.com/settings/personal-access-tokens và bấm **Revoke**. Mỗi người nên có một mã riêng. Mã hết hạn thì tạo mã mới.
-
-> Mã truy cập giống như mật khẩu: chỉ ghi được vào repo này, nhưng không được chia sẻ công khai.
+> Gói Supabase miễn phí giới hạn số email gửi mỗi giờ (quên mật khẩu, lời mời). Nếu cần gửi nhiều, cấu hình SMTP riêng trong **Authentication → Emails → SMTP Settings**.
 
 ---
 
@@ -104,34 +120,39 @@ Cần Node.js 18 trở lên, không cần cài thư viện nào.
 npm run dev       # build vào dist/ rồi mở http://localhost:4000
 ```
 
-Trang `/admin` trên máy vẫn đọc/ghi vào repo GitHub thật (theo `package.json → portfolio.repo`).
+Trang web và `/admin` trên máy vẫn đọc/ghi vào Supabase thật (theo `package.json → portfolio`).
 
 ## Cấu trúc
 
 ```
+supabase/
+  setup.sql            ← Chạy 1 lần trong Supabase SQL Editor (bảng, RLS, storage, nội dung ban đầu)
 content/
-  content.json         ← Toàn bộ nội dung web (admin sửa file này)
-  uploads/             ← Ảnh khách tải lên
+  content.json         Nội dung dự phòng (dùng khi chưa kết nối được Supabase)
 lib/
-  render.js            Render HTML trang web (dùng khi build và khi xem trước trong admin)
+  render.js            Render HTML trang web (dùng khi build, khi xem trước và khi trang tự cập nhật)
   schema.js            Chuẩn hoá & kiểm tra dữ liệu
   defaults.js          Nội dung mẫu ban đầu
   icons.js             Bộ icon SVG
 public/
   css/site.css         Giao diện trang web
-  js/site.js           Popup video, lọc, menu mobile, đổi theme, hiệu ứng
+  js/site.js           Popup video, lọc, menu mobile, đổi theme, hiệu ứng, tải nội dung mới từ Supabase
   js/video-utils.js    Nhận diện link video
   admin/               Trang quản trị (HTML/CSS/JS thuần)
 scripts/
-  build.js             Build ra dist/ (chạy trên GitHub Actions)
+  build.js             Build ra dist/ (chạy trên GitHub Actions, lấy nội dung từ Supabase)
   serve.js             Server xem thử trên máy
-.github/workflows/deploy.yml   Tự build & deploy khi có commit lên main
+.github/workflows/deploy.yml   Tự build & deploy khi có commit lên main và mỗi 6 giờ
 ```
 
 ## Câu hỏi thường gặp
 
-**Lưu rồi mà web chưa đổi?** Đợi khoảng 1 phút rồi tải lại trang bằng Ctrl/Cmd + Shift + R. Xem tiến trình ở tab **Actions** của repo.
+**Lưu rồi mà web chưa đổi?** Tải lại trang bằng Ctrl/Cmd + Shift + R. Web luôn hỏi Supabase bản mới nhất mỗi lần mở.
 
-**Upload video được không?** Không nên: GitHub giới hạn dung lượng file. Hãy đưa video lên YouTube, Vimeo hoặc Google Drive (bật chia sẻ "Bất kỳ ai có đường liên kết") rồi dán link.
+**Upload video được không?** Được, tối đa 50MB/file (giới hạn gói Supabase miễn phí, tổng dung lượng 1GB). Video dài hoặc chất lượng cao nên đưa lên YouTube/Vimeo rồi dán link: tiết kiệm dung lượng và phát mượt hơn.
 
 **Lỡ tay xoá?** Vào **Sao lưu** trong admin, chọn phiên bản trước rồi bấm **Khôi phục**, sau đó bấm **Lưu thay đổi**.
+
+**Quên mật khẩu?** Màn đăng nhập có **Quên mật khẩu?**, hoặc root đặt lại trong Supabase → Authentication → Users.
+
+**Supabase project bị tạm dừng?** Gói miễn phí tạm dừng project sau 7 ngày không có truy cập vào database. Web vẫn hiện bản HTML build sẵn (GitHub Actions gọi Supabase mỗi 6 giờ, nên thường giữ project hoạt động); nếu bị dừng, vào Supabase bấm **Restore project**.

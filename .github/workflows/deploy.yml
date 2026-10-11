@@ -1,9 +1,12 @@
 name: Deploy GitHub Pages
 
-# Chạy mỗi khi có commit lên main (kể cả khi khách bấm Lưu trong /admin)
+# Chạy khi có commit lên main, và mỗi 6 giờ để bản HTML build sẵn (cho Google/SEO)
+# luôn khớp nội dung mới nhất trên Supabase. Người xem luôn thấy nội dung mới ngay khi mở trang.
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 permissions:
