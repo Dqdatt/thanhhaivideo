@@ -1,173 +1,137 @@
 # Portfolio cho Video Editor
 
-Trang portfolio tối giản theo phong cách "Videograph", **có trang quản trị `/admin`** để khách hàng tự thêm link video, sửa nội dung và sắp xếp lại bố cục mà không cần đụng vào code.
+Trang portfolio tối giản theo phong cách "Videograph", chạy miễn phí trên **GitHub Pages**, có trang **`/admin`** để khách hàng tự thêm link video, sửa nội dung và sắp xếp bố cục mà không cần đụng vào code.
 
-- **Trang public** (tên miền chính): `https://tenmien.com`
-- **Trang quản trị**: `https://tenmien.com/admin`
+- **Trang web**: https://thanhhaivideo.com
+- **Trang quản trị**: https://thanhhaivideo.com/admin/
+
+## Cách hoạt động
+
+```
+Khách bấm "Lưu" trong /admin
+        │  (GitHub API, dùng mã truy cập)
+        ▼
+content/content.json được commit vào repo
+        │  (GitHub Actions tự chạy)
+        ▼
+scripts/build.js render ra HTML tĩnh  ──►  GitHub Pages  ──►  thanhhaivideo.com
+                                  (khoảng 30–60 giây)
+```
+
+- Không có server, không có database. Toàn bộ nội dung nằm trong repo: `content/content.json` (chữ, video, bố cục, cài đặt) và `content/uploads/` (ảnh).
+- Trang admin xem trước thay đổi ngay trong trình duyệt. Bấm Lưu thì web thật cập nhật sau khoảng 1 phút; góc trên admin có báo trạng thái.
+- Mỗi lần lưu là một commit, nên tab **Sao lưu** khôi phục được về bất kỳ phiên bản nào.
 
 ## Tính năng
 
-**Trang public**
-- Banner, Dịch vụ, Giới thiệu, Lưới video, Đánh giá, Liên hệ (giống thiết kế mẫu)
-- Bấm vào video sẽ mở popup phát ngay trên trang
-- Hỗ trợ link **YouTube (cả Shorts), Vimeo, Google Drive, TikTok, Facebook, file .mp4**; ảnh bìa lấy tự động
-- Lọc video theo danh mục, responsive trên điện thoại, render phía server nên tốt cho SEO
-- **Giao diện sáng / tối / tự động theo thiết bị**, có nút ☀/☾ để người xem tự đổi (nhớ lựa chọn cho lần sau)
+**Trang web**
+- Banner, Dịch vụ, Giới thiệu, Lưới video, Đánh giá, Liên hệ
+- Bấm vào video để mở popup phát ngay trên trang. Hỗ trợ link **YouTube (cả Shorts), Vimeo, Google Drive, TikTok, Facebook, file .mp4**, ảnh bìa lấy tự động
+- Lọc video theo danh mục, responsive trên điện thoại, HTML render sẵn nên tốt cho SEO
+- **Giao diện sáng / tối / tự động theo thiết bị**, có nút ☀/☾ để người xem tự đổi
 
 **Trang quản trị**
-- **Video**: dán link là tự nhận diện nền tảng và lấy tiêu đề; kéo thả để sắp xếp; ẩn/hiện; danh mục; ảnh bìa riêng
-- **Bố cục**: kéo thả đổi thứ tự khối, bật/tắt khối, thêm/nhân bản/xoá khối (có thể có nhiều lưới video, ví dụ một lưới "Wedding" và một lưới "TVC"), số cột, tỉ lệ khung (16:9, 4:3, 1:1, 9:16)
-- **Thông tin & giao diện**: logo, favicon, chế độ sáng/tối, màu nhấn, màu nền (riêng cho từng chế độ), font tiêu đề, liên hệ, mạng xã hội, SEO
-- **Xem trước trực tiếp** (máy tính / điện thoại) trước khi bấm Lưu
-- **Thư viện file**: upload ảnh, video
-- **Tài khoản**: phân quyền `root` (bạn) và `admin` (khách)
-- **Sao lưu**: tự giữ 20 phiên bản gần nhất, khôi phục 1 click, xuất/nhập file JSON
+- **Video**: dán link là tự nhận diện nền tảng và lấy tiêu đề; kéo thả sắp xếp; ẩn/hiện; danh mục; ảnh bìa riêng
+- **Bố cục**: kéo thả đổi thứ tự khối; bật/tắt, thêm, nhân bản, xoá khối; số cột; tỉ lệ khung (16:9, 4:3, 1:1, 9:16)
+- **Cài đặt**: logo, favicon, chế độ sáng/tối, màu, font, liên hệ, mạng xã hội, SEO
+- **Thư viện ảnh**: upload ảnh (tối đa 10MB/ảnh) vào repo
+- **Sao lưu**: lịch sử mọi lần lưu, khôi phục 1 click, xuất/nhập file JSON
 
-## Phân quyền
+---
 
-| Quyền | Làm được gì |
-|---|---|
-| `root` | Mọi thứ, cộng thêm tạo/xoá tài khoản và đặt lại mật khẩu cho người khác |
-| `admin` | Quản lý video, bố cục, thông tin, file, sao lưu, đổi mật khẩu của chính mình |
+## Cài đặt lần đầu (chủ repo làm 1 lần)
 
-Tài khoản `root` được tạo tự động ở lần chạy đầu tiên, từ `ADMIN_USER` / `ADMIN_PASSWORD` trong file `.env`. Sau khi deploy, vào **/admin → Tài khoản → Tạo tài khoản cho khách hàng** để tạo tài khoản `admin` rồi gửi cho khách.
+### 1. Bật GitHub Pages
+
+1. Vào repo → **Settings** → **Pages**.
+2. Ở **Build and deployment → Source**, chọn **GitHub Actions**.
+3. Vào tab **Actions**, mở lần chạy "Deploy GitHub Pages" gần nhất và bấm **Re-run all jobs** (hoặc **Run workflow**).
+4. Chạy xong (có dấu ✓), web có tại `https://dqdatt.github.io/thanhhaivideo/`.
+
+### 2. Trỏ tên miền thanhhaivideo.com
+
+**a) Thêm bản ghi DNS** ở trang quản lý tên miền (Mắt Bão, PA Vietnam, Tenten, iNET, Nhân Hòa…):
+
+| Loại | Tên / Host | Giá trị | TTL |
+|---|---|---|---|
+| A | `@` | `185.199.108.153` | 3600 |
+| A | `@` | `185.199.109.153` | 3600 |
+| A | `@` | `185.199.110.153` | 3600 |
+| A | `@` | `185.199.111.153` | 3600 |
+| CNAME | `www` | `dqdatt.github.io` | 3600 |
+
+> **Xoá các bản ghi cũ trùng tên trước khi thêm**: A `@` trỏ về IP khác, CNAME `www` trỏ chỗ khác, hoặc bản ghi "chuyển hướng / parking" mặc định của nhà cung cấp. Nếu ô Host không nhận `@`, để trống. Nếu ô giá trị CNAME bắt buộc có dấu chấm cuối, ghi `dqdatt.github.io.`.
+
+Có thể thêm IPv6 (không bắt buộc): 4 bản ghi **AAAA** `@` → `2606:50c0:8000::153`, `2606:50c0:8001::153`, `2606:50c0:8002::153`, `2606:50c0:8003::153`.
+
+**b) Khai báo tên miền trên GitHub**: repo → **Settings → Pages → Custom domain**, nhập `thanhhaivideo.com` rồi bấm **Save**. Chờ GitHub báo "DNS check successful" (vài phút đến vài giờ, tuỳ nhà cung cấp).
+
+**c) Bật HTTPS**: khi tick được ô **Enforce HTTPS** thì tick vào. Chứng chỉ SSL thường có sau khoảng 15 phút, chậm nhất 24 giờ.
+
+**d) (Khuyên làm) Xác minh tên miền** để người khác không chiếm được tên miền trên GitHub: ảnh đại diện → **Settings → Pages → Add a domain** → nhập `thanhhaivideo.com` → GitHub đưa ra 1 bản ghi **TXT** (host dạng `_github-pages-challenge-Dqdatt`) → thêm bản ghi đó ở nhà cung cấp tên miền → quay lại bấm **Verify**.
+
+Kiểm tra DNS đã trỏ đúng chưa:
+
+```bash
+dig +short thanhhaivideo.com
+```
+
+Kết quả đúng là 4 IP `185.199.10x.153`.
+
+### 3. Cấp mã truy cập cho khách hàng
+
+Khách **không cần tài khoản GitHub**. Chủ repo tạo một mã truy cập riêng cho khách:
+
+1. Mở https://github.com/settings/personal-access-tokens/new
+2. **Token name**: `khach-hang` · **Expiration**: ví dụ 1 năm
+3. **Repository access** → **Only select repositories** → chọn `Dqdatt/thanhhaivideo`
+4. **Permissions → Repository permissions**:
+   - **Contents**: Read and write (bắt buộc)
+   - **Actions**: Read-only (để admin hiện trạng thái cập nhật web)
+5. Bấm **Generate token**, copy mã (`github_pat_…`) và gửi cho khách. Khách vào `https://thanhhaivideo.com/admin/` và dán mã để đăng nhập.
+
+Muốn thu hồi quyền: vào https://github.com/settings/personal-access-tokens và bấm **Revoke**. Mỗi người nên có một mã riêng. Mã hết hạn thì tạo mã mới.
+
+> Mã truy cập giống như mật khẩu: chỉ ghi được vào repo này, nhưng không được chia sẻ công khai.
+
+---
 
 ## Chạy trên máy
 
-Cần Node.js 18 trở lên.
+Cần Node.js 18 trở lên, không cần cài thư viện nào.
 
 ```bash
-cp .env.example .env      # sửa ADMIN_PASSWORD
-npm install
-npm start                 # http://localhost:3000  và  http://localhost:3000/admin
+npm run dev       # build vào dist/ rồi mở http://localhost:4000
 ```
+
+Trang `/admin` trên máy vẫn đọc/ghi vào repo GitHub thật (theo `package.json → portfolio.repo`).
 
 ## Cấu trúc
 
 ```
-server.js              Express server + API
+content/
+  content.json         ← Toàn bộ nội dung web (admin sửa file này)
+  uploads/             ← Ảnh khách tải lên
 lib/
-  store.js             Đọc/ghi dữ liệu JSON, chuẩn hoá & sao lưu
-  auth.js              Tài khoản, mật khẩu (scrypt), phiên đăng nhập
-  render.js            Render HTML trang public
-  defaults.js          Nội dung mặc định lần chạy đầu
+  render.js            Render HTML trang web (dùng khi build và khi xem trước trong admin)
+  schema.js            Chuẩn hoá & kiểm tra dữ liệu
+  defaults.js          Nội dung mẫu ban đầu
   icons.js             Bộ icon SVG
 public/
-  css/site.css         Giao diện trang public
-  js/site.js           Popup video, lọc, menu mobile, hiệu ứng
-  js/video-utils.js    Nhận diện link video (dùng chung server + trình duyệt)
-  admin/               Trang quản trị (HTML/CSS/JS thuần, không cần build)
-data/                  ← TOÀN BỘ DỮ LIỆU (nhớ sao lưu thư mục này)
-  content.json         Nội dung trang
-  users.json           Tài khoản
-  secret.key           Khoá ký phiên đăng nhập
-  uploads/             Ảnh/video đã upload
-  backups/             20 bản sao lưu tự động
+  css/site.css         Giao diện trang web
+  js/site.js           Popup video, lọc, menu mobile, đổi theme, hiệu ứng
+  js/video-utils.js    Nhận diện link video
+  admin/               Trang quản trị (HTML/CSS/JS thuần)
+scripts/
+  build.js             Build ra dist/ (chạy trên GitHub Actions)
+  serve.js             Server xem thử trên máy
+.github/workflows/deploy.yml   Tự build & deploy khi có commit lên main
 ```
 
-> Dữ liệu lưu bằng file nên **chỉ cần giữ thư mục `data/`** là giữ được toàn bộ website. Không cần cài database.
+## Câu hỏi thường gặp
 
-## Deploy
+**Lưu rồi mà web chưa đổi?** Đợi khoảng 1 phút rồi tải lại trang bằng Ctrl/Cmd + Shift + R. Xem tiến trình ở tab **Actions** của repo.
 
-Hosting phải có **ổ đĩa lưu trữ lâu dài** (để giữ thư mục `data/`). Vì vậy **không dùng được** Vercel/Netlify (serverless, ổ đĩa bị xoá sau mỗi lần chạy).
+**Upload video được không?** Không nên: GitHub giới hạn dung lượng file. Hãy đưa video lên YouTube, Vimeo hoặc Google Drive (bật chia sẻ "Bất kỳ ai có đường liên kết") rồi dán link.
 
-### Cách 1: VPS + Docker (khuyên dùng)
-
-Dùng VPS Ubuntu bất kỳ (Vultr, DigitalOcean, AZDIGI, BizFly…), 1 vCPU / 1GB RAM là đủ.
-
-```bash
-# 1. Cài Docker
-curl -fsSL https://get.docker.com | sh
-
-# 2. Đưa code lên server (git clone hoặc scp), rồi:
-cd thanhhaivideo
-cp .env.example .env
-nano .env                       # đặt ADMIN_PASSWORD mạnh
-
-# 3. Chạy
-docker compose up -d --build
-```
-
-Trỏ tên miền và bật HTTPS bằng **Caddy** (tự xin chứng chỉ SSL):
-
-```bash
-sudo apt install -y caddy
-sudo tee /etc/caddy/Caddyfile <<'EOF'
-tenmien.com, www.tenmien.com {
-    encode gzip
-    request_body {
-        max_size 250MB
-    }
-    reverse_proxy localhost:3000
-}
-EOF
-sudo systemctl reload caddy
-```
-
-Ở trang quản lý tên miền, tạo bản ghi **A** cho `@` và `www` trỏ về IP của VPS.
-
-<details>
-<summary>Dùng Nginx thay cho Caddy</summary>
-
-```nginx
-server {
-    server_name tenmien.com www.tenmien.com;
-    client_max_body_size 250M;
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-Sau đó chạy `sudo certbot --nginx -d tenmien.com -d www.tenmien.com` để bật HTTPS.
-</details>
-
-### Cách 2: VPS không dùng Docker (PM2)
-
-```bash
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt install -y nodejs
-cd thanhhaivideo && npm ci --omit=dev
-cp .env.example .env && nano .env
-sudo npm i -g pm2
-pm2 start server.js --name portfolio
-pm2 save && pm2 startup
-```
-
-### Cách 3: Render / Railway / Fly.io
-
-- Tạo Web Service từ repo, lệnh start `npm start`
-- **Bắt buộc gắn Persistent Disk / Volume** vào đường dẫn, ví dụ `/data`, và đặt biến `DATA_DIR=/data`
-- Đặt các biến `ADMIN_USER`, `ADMIN_PASSWORD`, `SESSION_SECRET`
-
-## Cập nhật code sau này
-
-```bash
-git pull
-docker compose up -d --build     # hoặc: pm2 restart portfolio
-```
-
-Thư mục `data/` không bị ảnh hưởng.
-
-## Sao lưu
-
-- Trong /admin: **Sao lưu → Tải file sao lưu** (nội dung, không gồm file upload)
-- Trên server: sao lưu nguyên thư mục `data/`, ví dụ `tar czf backup-$(date +%F).tgz data/`
-
-## Biến môi trường
-
-| Biến | Mặc định | Ý nghĩa |
-|---|---|---|
-| `PORT` | `3000` | Cổng chạy |
-| `ADMIN_USER` | `admin` | Tên tài khoản root tạo lần đầu |
-| `ADMIN_PASSWORD` | (tự sinh, in ra log) | Mật khẩu root lần đầu |
-| `SESSION_SECRET` | tự sinh trong `data/secret.key` | Khoá ký cookie đăng nhập |
-| `DATA_DIR` | `./data` | Thư mục dữ liệu |
-| `MAX_VIDEO_MB` | `200` | Dung lượng tối đa khi upload video |
-| `TRUST_PROXY` | `loopback` | Đặt `1` nếu chạy sau proxy khác máy (Cloudflare Tunnel, Render…) |
-
-## Quên mật khẩu root
-
-Xoá tài khoản root trong `data/users.json` (hoặc xoá cả file), đặt `ADMIN_PASSWORD` mới trong `.env` rồi khởi động lại. Tài khoản root sẽ được tạo lại.
+**Lỡ tay xoá?** Vào **Sao lưu** trong admin, chọn phiên bản trước rồi bấm **Khôi phục**, sau đó bấm **Lưu thay đổi**.

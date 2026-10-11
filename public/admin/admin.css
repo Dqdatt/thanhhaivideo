@@ -87,6 +87,10 @@ img { display: block; max-width: 100%; }
 .login p { margin: -8px 0 4px; color: var(--muted); font-size: 13px; }
 .login .btn { height: 42px; }
 .error { color: var(--danger); font-size: 13px; min-height: 1em; margin: 0; }
+.login__help { font-size: 13px; color: var(--muted); }
+.login__help summary { cursor: pointer; color: var(--text); }
+.login__help p { margin: 8px 0 0; line-height: 1.6; }
+.steps { margin: 0; padding-left: 20px; display: grid; gap: 8px; font-size: 13.5px; line-height: 1.6; }
 
 /* ===== Khung chính ===== */
 .app { display: grid; grid-template-rows: 56px 1fr; grid-template-columns: minmax(0, 1fr); height: 100vh; }
@@ -97,6 +101,11 @@ img { display: block; max-width: 100%; }
 .brand__mark svg { width: 16px; height: 16px; }
 .dirty { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--accent); }
 .dirty::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.deploy { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 99px; font-size: 12px; border: 1px solid var(--line-2); color: var(--muted); white-space: nowrap; }
+.deploy--busy::before { content: ''; width: 10px; height: 10px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }
+.deploy--ok { color: var(--ok); border-color: rgba(62, 207, 142, .4); }
+.deploy--err { color: var(--danger); border-color: rgba(255, 92, 92, .45); }
+@keyframes spin { to { transform: rotate(360deg); } }
 .user-chip { font-size: 12.5px; color: var(--muted); }
 .user-chip b { color: var(--text); font-weight: 500; }
 .role { display: inline-block; padding: 1px 7px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--line-2); font-size: 11px; color: var(--muted); margin-left: 4px; }

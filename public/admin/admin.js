@@ -1,11 +1,17 @@
-/* Trang quản trị portfolio — JavaScript thuần, không cần build. */
+/* Trang quản trị portfolio — JavaScript thuần, lưu nội dung bằng GitHub API.
+ * Mỗi lần bấm Lưu = 1 commit vào repo -> GitHub Actions build lại trang (khoảng 1 phút). */
 (() => {
   const $app = document.getElementById('app');
+  const CFG = window.PORTFOLIO_CONFIG;
+  const P = window.Portfolio; // renderPage, normalizeContent, FONTS, ICONS, icon (từ portfolio.bundle.js)
+  const SITE = new URL('../', location.href).href; // gốc trang web (admin nằm ở /admin/)
   const state = {
     user: null,
     meta: null,
     content: null,
     savedJson: '',
+    sha: null, // sha của content.json trên GitHub, dùng để phát hiện xung đột khi lưu
+    localFiles: new Map(), // 'uploads/x.jpg' -> blob URL (ảnh vừa tải lên, chưa deploy xong)
     tab: 'videos',
     openSection: null,
     showPreview: localGet('preview') !== '0',
@@ -71,23 +77,96 @@
     return span.firstChild;
   };
 
-  async function api(path, opts = {}) {
-    const init = { method: opts.method || 'GET', headers: {}, credentials: 'same-origin' };
-    if (opts.body instanceof FormData) init.body = opts.body;
-    else if (opts.body !== undefined) {
-      init.headers['Content-Type'] = 'application/json';
-      init.body = JSON.stringify(opts.body);
+  /* ---- Mã truy cập (GitHub token) lưu trên máy ---- */
+  const TOKEN_KEY = 'portfolio_token';
+  function getToken() {
+    try { return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY); } catch { return null; }
+  }
+  function setToken(token, remember) {
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(TOKEN_KEY);
+      if (token) (remember ? localStorage : sessionStorage).setItem(TOKEN_KEY, token);
+    } catch { /* bỏ qua */ }
+  }
+
+  /* ---- GitHub API ---- */
+  const REPO = `/repos/${CFG.owner}/${CFG.repo}`;
+  const encPath = (p) => p.split('/').map(encodeURIComponent).join('/');
+
+  function ghError(status, data) {
+    const msg = (data && data.message) || '';
+    if (status === 401) return 'Mã truy cập không hợp lệ hoặc đã hết hạn';
+    if (status === 403 && /rate limit/i.test(msg)) return 'GitHub đang giới hạn số lần gọi, thử lại sau ít phút';
+    if (status === 403) return 'Mã truy cập không có quyền ghi vào repo (cần quyền Contents: Read and write)';
+    if (status === 404) return 'Không tìm thấy repo hoặc mã truy cập không có quyền truy cập repo';
+    if (status === 409 || (status === 422 && /sha/i.test(msg))) return 'Nội dung vừa được thay đổi ở nơi khác';
+    return msg || `Lỗi GitHub ${status}`;
+  }
+
+  async function gh(path, opts = {}) {
+    const token = opts.token || getToken();
+    const res = await fetch('https://api.github.com' + path, {
+      method: opts.method || 'GET',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      cache: 'no-store',
+    });
+    const data = res.status === 204 ? null : await res.json().catch(() => null);
+    if (!res.ok) {
+      const err = new Error(ghError(res.status, data));
+      err.status = res.status;
+      if (res.status === 401 && !opts.token) {
+        setToken(null);
+        state.user = null;
+        render();
+      }
+      throw err;
     }
-    const res = await fetch(path, init);
-    if (res.status === 401 && !path.endsWith('/login')) {
-      state.user = null;
-      render();
-      throw new Error('Phiên đăng nhập đã hết hạn');
-    }
-    const type = res.headers.get('content-type') || '';
-    const data = type.includes('json') ? await res.json() : await res.text();
-    if (!res.ok) throw new Error((data && data.error) || `Lỗi ${res.status}`);
     return data;
+  }
+
+  // base64 <-> UTF-8 / bytes
+  function bytesToB64(bytes) {
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+  const textToB64 = (text) => bytesToB64(new TextEncoder().encode(text));
+  const b64ToText = (b64) => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, '')), (c) => c.charCodeAt(0)));
+
+  const getFile = (path, ref = CFG.branch) => gh(`${REPO}/contents/${encPath(path)}?ref=${encodeURIComponent(ref)}`);
+  const putFile = (path, contentB64, message, sha) =>
+    gh(`${REPO}/contents/${encPath(path)}`, { method: 'PUT', body: { message, content: contentB64, branch: CFG.branch, ...(sha ? { sha } : {}) } });
+  const deleteFile = (path, sha, message) =>
+    gh(`${REPO}/contents/${encPath(path)}`, { method: 'DELETE', body: { message, sha, branch: CFG.branch } });
+  async function listDir(path) {
+    try {
+      const items = await gh(`${REPO}/contents/${encPath(path)}?ref=${encodeURIComponent(CFG.branch)}`);
+      return Array.isArray(items) ? items.filter((f) => f.type === 'file' && !f.name.startsWith('.')) : [];
+    } catch (err) {
+      if (err.status === 404) return [];
+      throw err;
+    }
+  }
+
+  async function loadContent() {
+    const file = await getFile(CFG.contentPath);
+    state.sha = file.sha;
+    return P.normalizeContent(JSON.parse(b64ToText(file.content)));
+  }
+
+  // Đường dẫn ảnh dùng trong trang admin (ảnh 'uploads/...' nằm ở gốc web)
+  function assetUrl(u) {
+    if (!u) return '';
+    if (state.localFiles.has(u)) return state.localFiles.get(u);
+    if (/^\/?uploads\//.test(u)) return SITE + u.replace(/^\//, '');
+    return u;
   }
 
   function toast(msg, type = 'ok') {
@@ -168,15 +247,70 @@
     state.saving = true;
     updateDirty();
     try {
-      const saved = await api('/api/admin/content', { method: 'PUT', body: state.content });
-      setContent(saved);
-      toast('Đã lưu — trang web đã được cập nhật');
+      const next = P.normalizeContent(state.content);
+      const json = JSON.stringify(next, null, 2) + '\n';
+      let r;
+      try {
+        r = await putFile(CFG.contentPath, textToB64(json), `Cập nhật nội dung từ trang quản trị (${state.user.username})`, state.sha);
+      } catch (err) {
+        if (err.status !== 409 && err.status !== 422) throw err;
+        // Có người khác vừa lưu: hỏi có ghi đè không
+        const ok = await confirmBox('Nội dung trên GitHub vừa được thay đổi ở nơi khác (máy khác hoặc tab khác). Ghi đè bằng nội dung bạn đang sửa?', { ok: 'Ghi đè', danger: true });
+        if (!ok) return;
+        state.sha = (await getFile(CFG.contentPath)).sha;
+        r = await putFile(CFG.contentPath, textToB64(json), `Cập nhật nội dung từ trang quản trị (${state.user.username})`, state.sha);
+      }
+      state.sha = r.content.sha;
+      setContent(next);
+      renderMain();
+      toast('Đã lưu — trang web sẽ cập nhật sau khoảng 1 phút');
+      watchDeploy(r.commit.sha);
     } catch (err) {
       toast(err.message, 'err');
     } finally {
       state.saving = false;
       updateDirty();
     }
+  }
+
+  // Hiện trạng thái GitHub Actions build & đăng trang sau khi lưu
+  let deployTimer = null;
+  function setDeployChip(text, kind) {
+    const chip = document.querySelector('.deploy');
+    if (!chip) return;
+    chip.className = `deploy deploy--${kind}`;
+    chip.textContent = text;
+    chip.classList.toggle('hidden', !text);
+  }
+  function watchDeploy(commitSha) {
+    clearTimeout(deployTimer);
+    setDeployChip('Đang cập nhật web…', 'busy');
+    const started = Date.now();
+    const tick = async () => {
+      try {
+        const r = await gh(`${REPO}/actions/runs?head_sha=${commitSha}&per_page=5`);
+        const run = (r.workflow_runs || [])[0];
+        if (run && run.status === 'completed') {
+          if (run.conclusion === 'success') {
+            setDeployChip('Web đã cập nhật ✓', 'ok');
+            deployTimer = setTimeout(() => setDeployChip('', 'ok'), 8000);
+          } else if (run.conclusion !== 'cancelled') {
+            setDeployChip('Cập nhật web lỗi', 'err');
+          }
+          return;
+        }
+      } catch (err) {
+        // Mã truy cập không có quyền đọc Actions: chỉ báo thời gian ước tính
+        if (err.status === 403 || err.status === 404) {
+          setDeployChip('Web sẽ cập nhật sau ~1 phút', 'busy');
+          deployTimer = setTimeout(() => setDeployChip('', 'ok'), 60000);
+          return;
+        }
+      }
+      if (Date.now() - started < 5 * 60e3) deployTimer = setTimeout(tick, 5000);
+      else setDeployChip('', 'ok');
+    };
+    deployTimer = setTimeout(tick, 4000);
   }
 
   function setContent(content) {
@@ -211,7 +345,9 @@
     if (!frame || !state.content || frame.offsetParent === null) return;
     const seq = ++previewSeq;
     try {
-      const html = await api('/api/admin/preview', { method: 'POST', body: state.content });
+      let html = P.renderPage(P.normalizeContent(state.content), { preview: true, base: SITE, version: 'preview' });
+      // Ảnh vừa tải lên chưa có trên web -> dùng bản trong máy
+      state.localFiles.forEach((blob, url) => { html = html.split(`"${url}"`).join(`"${blob}"`); });
       if (seq !== previewSeq) return;
       let scroll = 0;
       try { scroll = frame.contentWindow.scrollY; } catch { /* bỏ qua */ }
@@ -246,17 +382,33 @@
 
   /* ================= Upload ================= */
 
+  const IMAGE_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/avif': 'avif', 'image/x-icon': 'ico', 'image/vnd.microsoft.icon': 'ico' };
+  const MAX_IMAGE_MB = 10;
+
+  // Tải ảnh lên repo (content/uploads/...), trả về đường dẫn 'uploads/<tên>'
   async function uploadFile(file) {
-    const fd = new FormData();
-    fd.append('file', file);
+    const ext = IMAGE_EXT[file.type];
+    if (!ext) throw new Error('Chỉ hỗ trợ ảnh JPG, PNG, WEBP, GIF, AVIF, ICO. Video hãy đưa lên YouTube/Drive rồi dán link.');
+    if (file.size > MAX_IMAGE_MB * 1048576) throw new Error(`Ảnh tối đa ${MAX_IMAGE_MB}MB — hãy nén ảnh trước (ví dụ squoosh.app)`);
+    const name = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const t = h('div', { class: 'toast' }, `Đang tải lên ${file.name}…`);
     document.getElementById('toasts').append(t);
     try {
-      const r = await api('/api/admin/upload', { method: 'POST', body: fd });
-      return r.url;
+      const b64 = bytesToB64(new Uint8Array(await file.arrayBuffer()));
+      await putFile(`${CFG.uploadsPath}/${name}`, b64, `Tải ảnh lên: ${file.name}`);
+      const url = `uploads/${name}`;
+      state.localFiles.set(url, URL.createObjectURL(file));
+      return url;
     } finally {
       t.remove();
     }
+  }
+
+  async function listUploads() {
+    const files = await listDir(CFG.uploadsPath);
+    return files
+      .map((f) => ({ name: f.name, path: f.path, sha: f.sha, size: f.size, url: `uploads/${f.name}` }))
+      .sort((a, b) => b.name.localeCompare(a.name)); // tên bắt đầu bằng thời gian -> mới nhất lên đầu
   }
 
   function pickFile(accept) {
@@ -270,7 +422,7 @@
   }
 
   async function openLibrary({ images = true } = {}) {
-    const files = await api('/api/admin/uploads');
+    const files = await listUploads();
     const list = files.filter((f) => (images ? isImage(f.url) : true));
     return new Promise((resolve) => {
       let picked = null;
@@ -281,7 +433,7 @@
         body: list.length
           ? h('div', { class: 'files files--pick' }, list.map((f) =>
               h('div', { class: 'file', onclick: () => { picked = f.url; close(); } },
-                h('div', { class: 'file__img', style: { backgroundImage: `url("${f.url}")` } }),
+                h('div', { class: 'file__img', style: { backgroundImage: `url("${assetUrl(f.url)}")` } }),
                 h('div', { class: 'file__meta' }, h('span', {}, f.name)))))
           : h('p', { class: 'muted' }, 'Thư viện trống. Hãy tải ảnh lên trước.'),
       });
@@ -342,7 +494,7 @@
     function paint() {
       const u = obj[key];
       preview.textContent = '';
-      preview.style.backgroundImage = u ? `url("${u.replace(/"/g, '%22')}")` : '';
+      preview.style.backgroundImage = u ? `url("${assetUrl(u).replace(/"/g, '%22')}")` : '';
       if (!u) preview.append(icon('image'));
     }
     function set(v, syncInput = true) {
@@ -426,10 +578,10 @@
 
   /* ================= Đăng nhập ================= */
 
-  function renderLogin() {
-    const err = h('p', { class: 'error' });
-    const user = h('input', { name: 'username', autocomplete: 'username', required: true });
-    const pass = h('input', { name: 'password', type: 'password', autocomplete: 'current-password', required: true });
+  function renderLogin(message) {
+    const err = h('p', { class: 'error' }, message || '');
+    const tokenInput = h('input', { name: 'token', type: 'password', autocomplete: 'off', spellcheck: 'false', required: true, placeholder: 'github_pat_…' });
+    const remember = h('input', { type: 'checkbox', checked: true });
     const btn = h('button', { class: 'btn btn--primary', type: 'submit' }, 'Đăng nhập');
     $app.replaceChildren(h('div', { class: 'login' },
       h('form', { onsubmit: async (e) => {
@@ -437,8 +589,9 @@
         err.textContent = '';
         btn.disabled = true;
         try {
-          const r = await api('/api/login', { method: 'POST', body: { username: user.value.trim(), password: pass.value } });
-          state.user = r.user;
+          const token = tokenInput.value.trim();
+          await signIn(token);
+          setToken(token, remember.checked);
           await boot();
         } catch (ex) {
           err.textContent = ex.message;
@@ -448,12 +601,26 @@
       } },
         h('div', { class: 'brand' }, h('span', { class: 'brand__mark' }, icon('film')), 'Quản trị Portfolio'),
         h('h1', {}, 'Đăng nhập'),
-        h('p', {}, 'Quản lý video, bố cục và thông tin trang web.'),
-        h('label', { class: 'field' }, h('span', {}, 'Tên đăng nhập'), user),
-        h('label', { class: 'field' }, h('span', {}, 'Mật khẩu'), pass),
+        h('p', {}, 'Nhập mã truy cập được cấp để quản lý video, bố cục và thông tin trang web.'),
+        h('label', { class: 'field' }, h('span', {}, 'Mã truy cập'), tokenInput),
+        h('label', { class: 'switch' }, remember, h('i'), 'Ghi nhớ trên máy này'),
         err, btn,
-        h('a', { href: '/', style: { fontSize: '13px', textAlign: 'center' } }, '← Về trang chủ'))));
-    user.focus();
+        h('details', { class: 'login__help' },
+          h('summary', {}, 'Chưa có mã truy cập?'),
+          h('p', {}, 'Liên hệ người quản lý website để được cấp mã. Người quản lý tạo mã tại GitHub → Settings → Developer settings → Fine-grained tokens, chỉ chọn repo ',
+            h('b', {}, `${CFG.owner}/${CFG.repo}`), ', quyền ', h('b', {}, 'Contents: Read and write'), ' (thêm ', h('b', {}, 'Actions: Read'), ' để xem trạng thái cập nhật web).')),
+        h('a', { href: SITE, style: { fontSize: '13px', textAlign: 'center' } }, '← Về trang chủ'))));
+    tokenInput.focus();
+  }
+
+  // Kiểm tra mã truy cập: phải ghi được vào repo
+  async function signIn(token) {
+    if (!/^(github_pat_|ghp_|gho_)[\w]+$/.test(token)) throw new Error('Mã truy cập không đúng định dạng (bắt đầu bằng github_pat_ hoặc ghp_)');
+    const repo = await gh(REPO, { token });
+    if (!repo.permissions || !repo.permissions.push) throw new Error('Mã truy cập chỉ có quyền đọc. Cần quyền Contents: Read and write.');
+    let login = 'admin';
+    try { login = (await gh('/user', { token })).login; } catch { /* token chỉ cấp cho repo vẫn dùng được */ }
+    state.user = { username: login, role: repo.permissions.admin ? 'root' : 'admin' };
   }
 
   /* ================= Khung ứng dụng ================= */
@@ -492,9 +659,10 @@
       h('header', { class: 'topbar' },
         h('div', { class: 'brand' }, h('span', { class: 'brand__mark' }, icon('film')), h('span', { class: 'hide-sm' }, state.content.settings.siteName || 'Portfolio')),
         h('span', { class: 'dirty hidden' }, 'Chưa lưu'),
+        h('span', { class: 'deploy hidden' }),
         h('span', { class: 'spacer' }),
         h('button', { class: 'btn btn--ghost js-preview-toggle', onclick: () => togglePreview() }, icon('eye'), h('span', { class: 'hide-sm' }, 'Xem trước')),
-        h('a', { class: 'btn btn--ghost', href: '/', target: '_blank', rel: 'noopener' }, icon('external'), h('span', { class: 'hide-sm' }, 'Mở trang')),
+        h('a', { class: 'btn btn--ghost', href: SITE, target: '_blank', rel: 'noopener' }, icon('external'), h('span', { class: 'hide-sm' }, 'Mở trang')),
         h('button', { class: 'btn btn--primary js-save', disabled: true, onclick: save, title: 'Ctrl/Cmd + S' }, 'Lưu thay đổi'),
         h('span', { class: 'user-chip' }, h('b', {}, state.user.username), h('span', { class: `role role--${state.user.role}` }, state.user.role)),
         h('button', { class: 'btn btn--ghost btn--icon', title: 'Đăng xuất', 'aria-label': 'Đăng xuất', onclick: logout }, icon('logout'))),
@@ -528,7 +696,7 @@
 
   async function logout() {
     if (isDirty() && !(await confirmBox('Bạn có thay đổi chưa lưu. Vẫn đăng xuất?', { ok: 'Đăng xuất', danger: true }))) return;
-    await api('/api/logout', { method: 'POST' });
+    setToken(null);
     state.user = null;
     state.savedJson = JSON.stringify(state.content);
     render();
@@ -550,7 +718,7 @@
   const PROVIDER_LABEL = { youtube: 'YouTube', vimeo: 'Vimeo', drive: 'Google Drive', tiktok: 'TikTok', facebook: 'Facebook', file: 'File video' };
 
   function thumbFor(v) {
-    if (v.thumbnail) return v.thumbnail;
+    if (v.thumbnail) return assetUrl(v.thumbnail);
     const info = VideoUtils.parse(v.url);
     return (info && info.thumbnail) || '';
   }
@@ -629,7 +797,7 @@
         else box.append(h('iframe', { src: info.embed, allow: 'autoplay; fullscreen; encrypted-media', allowfullscreen: true }));
         return;
       }
-      const th = draft.thumbnail || info.thumbnail;
+      const th = assetUrl(draft.thumbnail) || info.thumbnail;
       box.append(h('button', {
         type: 'button', class: 'ph', style: { background: th ? `#000 url("${th}") center/cover` : '#000', border: 0, cursor: 'pointer' },
         onclick: () => paintPreview(true),
@@ -641,7 +809,7 @@
       const info = VideoUtils.parse(draft.url);
       if (!info || draft.title) return;
       try {
-        const r = await api('/api/admin/oembed?url=' + encodeURIComponent(draft.url));
+        const r = await fetch('https://noembed.com/embed?url=' + encodeURIComponent(draft.url)).then((x) => x.json());
         if (r.title && !draft.title) {
           draft.title = r.title;
           titleInput.value = r.title;
@@ -944,24 +1112,21 @@
 
     async function load() {
       try {
-        const files = await api('/api/admin/uploads');
-        wrap.replaceChildren(...(files.length ? files.map((f) => {
-          const vid = /\.(mp4|webm|mov)$/i.test(f.name);
-          return h('div', { class: 'file' },
-            h('div', { class: 'file__img', style: vid ? {} : { backgroundImage: `url("${f.url}")` } },
-              vid ? h('video', { src: f.url, muted: true, preload: 'metadata' }) : null),
+        const files = await listUploads();
+        wrap.replaceChildren(...(files.length ? files.map((f) =>
+          h('div', { class: 'file' },
+            h('div', { class: 'file__img', style: { backgroundImage: `url("${assetUrl(f.url)}")` } }),
             h('div', { class: 'file__meta' },
               h('span', { title: f.name }, `${fmtSize(f.size)}${used.includes(f.url) ? ' · đang dùng' : ''}`),
               h('button', { class: 'btn btn--ghost btn--icon', title: 'Copy link', 'aria-label': 'Copy link', onclick: async () => {
-                const full = location.origin + f.url;
+                const full = SITE + f.url;
                 try { await navigator.clipboard.writeText(full); toast('Đã copy link'); } catch { prompt('Link file:', full); }
               } }, icon('copy')),
               h('button', { class: 'btn btn--ghost btn--icon btn--danger', title: 'Xoá', 'aria-label': 'Xoá', onclick: async () => {
                 const warn = used.includes(f.url) ? ' File này đang được dùng trên trang!' : '';
-                if (!(await confirmBox(`Xoá vĩnh viễn file này?${warn}`, { ok: 'Xoá', danger: true }))) return;
-                try { await api('/api/admin/uploads/' + encodeURIComponent(f.name), { method: 'DELETE' }); load(); } catch (err) { toast(err.message, 'err'); }
-              } }, icon('trash'))));
-        }) : [h('p', { class: 'muted' }, 'Chưa có file nào.')]));
+                if (!(await confirmBox(`Xoá file này khỏi repo?${warn}`, { ok: 'Xoá', danger: true }))) return;
+                try { await deleteFile(f.path, f.sha, `Xoá ảnh ${f.name}`); toast('Đã xoá'); load(); } catch (err) { toast(err.message, 'err'); }
+              } }, icon('trash'))))) : [h('p', { class: 'muted' }, 'Chưa có ảnh nào.')]));
       } catch (err) {
         wrap.replaceChildren(h('p', { class: 'error' }, err.message));
       }
@@ -975,103 +1140,46 @@
     }
 
     const zone = h('div', { class: 'quick-add drop-zone', style: { alignItems: 'center' } },
-      icon('upload'), h('span', { class: 'muted', style: { flex: 1 } }, `Kéo thả ảnh/video vào đây hoặc bấm nút. Ảnh ≤ 15MB, video ≤ ${state.meta.maxVideoMb}MB.`),
-      h('button', { class: 'btn btn--primary', onclick: async () => {
-        const inp = h('input', { type: 'file', multiple: true, accept: 'image/*,video/mp4,video/webm,video/quicktime' });
+      icon('upload'), h('span', { class: 'muted', style: { flex: 1 } }, `Kéo thả ảnh vào đây hoặc bấm nút. Ảnh tối đa ${MAX_IMAGE_MB}MB. Video hãy đưa lên YouTube/Drive rồi dán link.`),
+      h('button', { class: 'btn btn--primary', onclick: () => {
+        const inp = h('input', { type: 'file', multiple: true, accept: 'image/*' });
         inp.onchange = () => doUpload([...inp.files]);
         inp.click();
-      } }, 'Chọn file'));
+      } }, 'Chọn ảnh'));
     zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('is-over'); });
     zone.addEventListener('dragleave', () => zone.classList.remove('is-over'));
     zone.addEventListener('drop', (e) => { e.preventDefault(); zone.classList.remove('is-over'); doUpload([...e.dataTransfer.files]); });
 
     load();
     return h('div', {},
-      pageHead('Thư viện file', 'Ảnh và video đã tải lên server. Video tải lên có thể dùng link của nó làm link video portfolio.'),
+      pageHead('Thư viện ảnh', 'Ảnh đã tải lên được lưu trong repo GitHub và có trên web sau khoảng 1 phút.'),
       zone, wrap);
   }
 
   /* ================= Tab: Tài khoản ================= */
 
   function viewAccount() {
-    const cur = h('input', { type: 'password', autocomplete: 'current-password' });
-    const nxt = h('input', { type: 'password', autocomplete: 'new-password' });
-    const nxt2 = h('input', { type: 'password', autocomplete: 'new-password' });
-
-    const pwPanel = h('form', { class: 'panel stack', onsubmit: async (e) => {
-      e.preventDefault();
-      if (nxt.value !== nxt2.value) return toast('Mật khẩu nhập lại không khớp', 'err');
-      try {
-        await api('/api/admin/me/password', { method: 'PUT', body: { current: cur.value, next: nxt.value } });
-        cur.value = nxt.value = nxt2.value = '';
-        toast('Đã đổi mật khẩu');
-      } catch (err) { toast(err.message, 'err'); }
-    } },
-      h('h3', {}, 'Đổi mật khẩu'),
-      h('div', { class: 'grid-3' },
-        h('label', { class: 'field' }, h('span', {}, 'Mật khẩu hiện tại'), cur),
-        h('label', { class: 'field' }, h('span', {}, 'Mật khẩu mới (≥ 8 ký tự)'), nxt),
-        h('label', { class: 'field' }, h('span', {}, 'Nhập lại'), nxt2)),
-      h('div', {}, h('button', { class: 'btn btn--primary', type: 'submit' }, 'Đổi mật khẩu')));
-
+    const repoUrl = `https://github.com/${CFG.owner}/${CFG.repo}`;
     const out = h('div', {},
-      pageHead('Tài khoản', `Đăng nhập với tên "${state.user.username}" (${state.user.role === 'root' ? 'root — toàn quyền' : 'admin — quản lý nội dung'}).`),
-      pwPanel);
+      pageHead('Tài khoản', `Đang đăng nhập bằng mã truy cập của "${state.user.username}" (${state.user.role === 'root' ? 'chủ repo — toàn quyền' : 'quản lý nội dung'}).`),
+      h('div', { class: 'panel stack' }, h('h3', {}, 'Mã truy cập trên máy này'),
+        h('p', { class: 'dim', style: { margin: 0 } }, 'Mã truy cập giống như mật khẩu. Nếu dùng máy chung, hãy đăng xuất sau khi dùng xong.'),
+        h('div', {}, h('button', { class: 'btn btn--danger', onclick: logout }, icon('logout'), 'Đăng xuất & xoá mã khỏi máy này'))));
 
     if (state.user.role === 'root') {
-      const usersBox = h('div', {}, h('p', { class: 'muted' }, 'Đang tải…'));
-      const loadUsers = async () => {
-        const users = await api('/api/admin/users');
-        usersBox.replaceChildren(h('table', { class: 'table' },
-          h('thead', {}, h('tr', {}, h('th', {}, 'Tên đăng nhập'), h('th', {}, 'Quyền'), h('th', {}, 'Ngày tạo'), h('th', {}))),
-          h('tbody', {}, users.map((u) => h('tr', {},
-            h('td', {}, u.username, u.username === state.user.username ? h('span', { class: 'dim' }, ' (bạn)') : null),
-            h('td', {}, h('span', { class: `role role--${u.role}` }, u.role)),
-            h('td', { class: 'dim' }, new Date(u.createdAt).toLocaleDateString('vi-VN')),
-            h('td', { style: { textAlign: 'right' } },
-              h('div', { class: 'row', style: { justifyContent: 'flex-end' } },
-                h('button', { class: 'btn btn--sm', onclick: () => resetPw(u.username) }, 'Đặt lại mật khẩu'),
-                u.username !== state.user.username ? h('button', { class: 'btn btn--sm btn--danger', onclick: async () => {
-                  if (!(await confirmBox(`Xoá tài khoản "${u.username}"?`, { ok: 'Xoá', danger: true }))) return;
-                  try { await api('/api/admin/users/' + encodeURIComponent(u.username), { method: 'DELETE' }); loadUsers(); } catch (err) { toast(err.message, 'err'); }
-                } }, 'Xoá') : null)))))));
-      };
-
-      const resetPw = (username) => {
-        const inp = h('input', { type: 'text', value: Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 8) });
-        modal({
-          title: `Đặt lại mật khẩu cho ${username}`,
-          body: h('label', { class: 'field' }, h('span', {}, 'Mật khẩu mới'), inp, h('small', {}, 'Gửi mật khẩu này cho khách, họ có thể tự đổi sau khi đăng nhập.')),
-          foot: (close) => [
-            h('button', { class: 'btn', onclick: close }, 'Huỷ'),
-            h('button', { class: 'btn btn--primary', onclick: async () => {
-              try { await api(`/api/admin/users/${encodeURIComponent(username)}/password`, { method: 'PUT', body: { password: inp.value } }); toast('Đã đặt lại mật khẩu'); close(); } catch (err) { toast(err.message, 'err'); }
-            } }, 'Lưu')],
-        });
-      };
-
-      const nu = h('input', { placeholder: 'vd: khachhang', autocomplete: 'off' });
-      const np = h('input', { type: 'text', autocomplete: 'off', placeholder: '≥ 8 ký tự' });
-      const nr = h('select', {}, h('option', { value: 'admin' }, 'admin — quản lý nội dung'), h('option', { value: 'root' }, 'root — toàn quyền + quản lý tài khoản'));
-      const createForm = h('form', { class: 'stack', onsubmit: async (e) => {
-        e.preventDefault();
-        try {
-          await api('/api/admin/users', { method: 'POST', body: { username: nu.value.trim(), password: np.value, role: nr.value } });
-          toast(`Đã tạo tài khoản ${nu.value.trim()}`);
-          nu.value = np.value = '';
-          loadUsers();
-        } catch (err) { toast(err.message, 'err'); }
-      } },
-        h('div', { class: 'grid-3' },
-          h('label', { class: 'field' }, h('span', {}, 'Tên đăng nhập'), nu),
-          h('label', { class: 'field' }, h('span', {}, 'Mật khẩu'), np),
-          h('label', { class: 'field' }, h('span', {}, 'Quyền'), nr)),
-        h('div', {}, h('button', { class: 'btn btn--primary', type: 'submit' }, icon('plus'), 'Tạo tài khoản')));
-
-      out.append(
-        h('div', { class: 'panel' }, h('h3', {}, 'Danh sách tài khoản'), usersBox),
-        h('div', { class: 'panel' }, h('h3', {}, 'Tạo tài khoản cho khách hàng'), createForm));
-      loadUsers().catch((err) => usersBox.replaceChildren(h('p', { class: 'error' }, err.message)));
+      out.append(h('div', { class: 'panel stack' }, h('h3', {}, 'Cấp quyền cho khách hàng'),
+        h('ol', { class: 'steps' },
+          h('li', {}, 'Mở ', h('a', { href: 'https://github.com/settings/personal-access-tokens/new', target: '_blank', rel: 'noopener' }, 'GitHub → tạo Fine-grained token'), '.'),
+          h('li', {}, 'Token name: ví dụ ', h('b', {}, 'khach-hang'), '. Expiration: chọn thời hạn (ví dụ 1 năm).'),
+          h('li', {}, 'Repository access: ', h('b', {}, 'Only select repositories'), ' → chọn ', h('b', {}, `${CFG.owner}/${CFG.repo}`), '.'),
+          h('li', {}, 'Permissions → Repository permissions: ', h('b', {}, 'Contents: Read and write'), ', ', h('b', {}, 'Actions: Read-only'), '.'),
+          h('li', {}, 'Bấm Generate token, copy mã và gửi cho khách. Khách vào ', h('b', {}, SITE + 'admin/'), ' và dán mã để đăng nhập.')),
+        h('p', { class: 'dim', style: { margin: 0 } }, 'Muốn thu hồi quyền: vào ', h('a', { href: 'https://github.com/settings/personal-access-tokens', target: '_blank', rel: 'noopener' }, 'danh sách token'), ' và bấm Revoke. Mỗi người nên có một mã riêng.')),
+        h('div', { class: 'panel stack' }, h('h3', {}, 'Repo & lịch sử deploy'),
+          h('div', { class: 'row row--wrap' },
+            h('a', { class: 'btn', href: repoUrl, target: '_blank', rel: 'noopener' }, icon('external'), 'Mở repo'),
+            h('a', { class: 'btn', href: `${repoUrl}/actions`, target: '_blank', rel: 'noopener' }, icon('external'), 'Lịch sử deploy'),
+            h('a', { class: 'btn', href: `${repoUrl}/settings/pages`, target: '_blank', rel: 'noopener' }, icon('external'), 'Cài đặt GitHub Pages'))));
     }
     return out;
   }
@@ -1080,64 +1188,77 @@
 
   function viewBackup() {
     const listBox = h('div', {}, h('p', { class: 'muted' }, 'Đang tải…'));
-    api('/api/admin/backups').then((files) => {
-      listBox.replaceChildren(files.length
-        ? h('table', { class: 'table' }, h('tbody', {}, files.map((f) => {
-            const m = f.match(/content-(\d{4})-(\d\d)-(\d\d)T(\d\d)-(\d\d)-(\d\d)/);
-            const when = m ? new Date(Date.UTC(m[1], m[2] - 1, m[3], m[4], m[5], m[6])).toLocaleString('vi-VN') : f;
-            return h('tr', {}, h('td', {}, when), h('td', { style: { textAlign: 'right' } },
-              h('button', { class: 'btn btn--sm', onclick: async () => {
-                if (!(await confirmBox(`Khôi phục dữ liệu về thời điểm ${when}? Dữ liệu hiện tại cũng được sao lưu trước khi khôi phục.`, { ok: 'Khôi phục' }))) return;
-                try {
-                  setContent(await api('/api/admin/backups/restore', { method: 'POST', body: { name: f } }));
-                  toast('Đã khôi phục');
-                  renderApp();
-                } catch (err) { toast(err.message, 'err'); }
-              } }, 'Khôi phục')));
+
+    // Nạp một phiên bản vào trình soạn thảo (chưa lưu) để người dùng xem trước rồi bấm Lưu
+    function loadVersion(data, label) {
+      state.content = P.normalizeContent(data);
+      renderApp();
+      toast(`Đã nạp ${label} — xem trước rồi bấm "Lưu thay đổi" để áp dụng`);
+    }
+
+    gh(`${REPO}/commits?path=${encodeURIComponent(CFG.contentPath)}&sha=${encodeURIComponent(CFG.branch)}&per_page=30`).then((commits) => {
+      listBox.replaceChildren(commits.length
+        ? h('table', { class: 'table' }, h('tbody', {}, commits.map((c, i) => {
+            const when = new Date(c.commit.author.date).toLocaleString('vi-VN');
+            return h('tr', {},
+              h('td', {}, when, i === 0 ? h('span', { class: 'role', style: { marginLeft: '8px' } }, 'hiện tại') : null),
+              h('td', { class: 'dim' }, c.commit.message.split('\n')[0]),
+              h('td', { style: { textAlign: 'right' } }, i === 0 ? null :
+                h('button', { class: 'btn btn--sm', onclick: async () => {
+                  if (isDirty() && !(await confirmBox('Bạn đang có thay đổi chưa lưu, chúng sẽ bị thay thế. Tiếp tục?', { ok: 'Tiếp tục', danger: true }))) return;
+                  try {
+                    const file = await getFile(CFG.contentPath, c.sha);
+                    loadVersion(JSON.parse(b64ToText(file.content)), `phiên bản ${when}`);
+                  } catch (err) { toast(err.message, 'err'); }
+                } }, 'Khôi phục')));
           })))
-        : h('p', { class: 'muted' }, 'Chưa có bản sao lưu. Mỗi lần bấm Lưu, hệ thống tự giữ lại bản trước đó (tối đa 20 bản).'));
+        : h('p', { class: 'muted' }, 'Chưa có lịch sử.'));
     }).catch((err) => listBox.replaceChildren(h('p', { class: 'error' }, err.message)));
 
     return h('div', {},
-      pageHead('Sao lưu & khôi phục', 'Hệ thống tự lưu 20 phiên bản gần nhất mỗi khi bạn bấm Lưu.'),
+      pageHead('Sao lưu & khôi phục', 'Mỗi lần Lưu là một phiên bản trong lịch sử GitHub — có thể quay lại bất cứ lúc nào.'),
       h('div', { class: 'panel stack' }, h('h3', {}, 'Xuất / nhập dữ liệu'),
-        h('p', { class: 'dim', style: { margin: 0 } }, 'Tải file JSON chứa toàn bộ nội dung (không gồm ảnh đã upload) để cất giữ hoặc chuyển sang server khác.'),
+        h('p', { class: 'dim', style: { margin: 0 } }, 'Tải file JSON chứa toàn bộ nội dung để cất giữ, hoặc nạp lại từ file đã tải.'),
         h('div', { class: 'row row--wrap' },
-          h('a', { class: 'btn', href: '/api/admin/export', download: '' }, icon('download'), 'Tải file sao lưu'),
+          h('button', { class: 'btn', onclick: () => {
+            const blob = new Blob([JSON.stringify(state.content, null, 2)], { type: 'application/json' });
+            const a = h('a', { href: URL.createObjectURL(blob), download: `portfolio-backup-${new Date().toISOString().slice(0, 10)}.json` });
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+          } }, icon('download'), 'Tải file sao lưu'),
           h('button', { class: 'btn', onclick: async () => {
             const f = await pickFile('application/json,.json');
             if (!f) return;
             let data;
             try { data = JSON.parse(await f.text()); } catch { return toast('File không phải JSON hợp lệ', 'err'); }
-            if (!(await confirmBox('Thay toàn bộ nội dung hiện tại bằng dữ liệu trong file?', { ok: 'Nhập dữ liệu', danger: true }))) return;
-            try {
-              setContent(await api('/api/admin/import', { method: 'POST', body: data }));
-              toast('Đã nhập dữ liệu');
-              renderApp();
-            } catch (err) { toast(err.message, 'err'); }
-          } }, icon('upload'), 'Nhập từ file'))),
-      h('div', { class: 'panel' }, h('h3', {}, 'Bản sao lưu tự động'), listBox));
+            if (!data || !Array.isArray(data.sections)) return toast('File không đúng định dạng', 'err');
+            loadVersion(data, 'dữ liệu từ file');
+          } }, icon('upload'), 'Nạp từ file'))),
+      h('div', { class: 'panel' }, h('h3', {}, 'Lịch sử thay đổi'), listBox));
   }
 
   /* ================= Khởi động ================= */
 
   async function boot() {
-    const [meta, content] = await Promise.all([api('/api/admin/meta'), api('/api/admin/content')]);
-    state.meta = meta;
-    setContent(content);
+    state.meta = {
+      fonts: P.FONTS,
+      icons: Object.fromEntries(P.ICONS.map((n) => [n, P.icon(n, 22)])),
+    };
+    setContent(await loadContent());
     render();
   }
 
   function render() {
     if (!state.user) return renderLogin();
-    if (!state.content) return boot().catch((err) => toast(err.message, 'err'));
+    if (!state.content) return boot().catch((err) => renderLogin(err.message));
     renderApp();
   }
 
-  api('/api/me')
-    .then((r) => {
-      state.user = r.user;
-      render();
-    })
-    .catch(() => renderLogin());
+  // Tự đăng nhập nếu máy đã lưu mã truy cập
+  const saved = getToken();
+  if (!saved) renderLogin();
+  else signIn(saved).then(render).catch((err) => {
+    if (err.status === 401) setToken(null);
+    renderLogin(err.message);
+  });
 })();
