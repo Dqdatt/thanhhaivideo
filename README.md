@@ -39,8 +39,9 @@ Người xem mở thanhhaivideo.com
 - Responsive trên điện thoại; **giao diện sáng / tối / tự động theo thiết bị**, có nút ☀/☾ để người xem tự đổi
 
 **Trang quản trị**
-- **Dự án**: dán link hoặc tải file video lên; tự nhận diện nền tảng và lấy tiêu đề; kéo thả sắp xếp; ẩn/hiện; danh mục; ảnh bìa riêng; thông tin dự án; khung xem trước hiện ngay trang của dự án đang sửa
-- **Bố cục**: kéo thả đổi thứ tự khối; bật/tắt, thêm, nhân bản, xoá khối; số cột; tỉ lệ ảnh
+- Menu xếp theo các khối của trang chủ: **Showreel**, **Giới thiệu**, **Dự án & danh mục**, **Hậu trường**, **Liên hệ**; mỗi khối một tab, ảnh hiện xem trước lớn đúng khung như trên trang
+- **Dự án & danh mục**: thêm / đổi tên / xoá / kéo thả sắp xếp danh mục (thứ tự nút lọc trên trang chủ); dán link hoặc tải file video lên; tự nhận diện nền tảng và lấy tiêu đề; kéo thả sắp xếp dự án; ẩn/hiện; ảnh bìa riêng; thông tin dự án; khung xem trước hiện ngay trang của dự án đang sửa
+- **Bố cục & menu**: kéo thả đổi thứ tự khối; bật/tắt, thêm, nhân bản, xoá khối; tên trên menu; số cột; tỉ lệ ảnh
 - **Tin nhắn**: tin nhắn khách gửi từ form liên hệ, đánh dấu đã đọc, trả lời qua email, xoá
 - **Cài đặt**: logo, favicon, chế độ sáng/tối, màu, font, liên hệ, mạng xã hội, SEO
 - **Thư viện file**: ảnh và video trên Supabase Storage

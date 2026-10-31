@@ -345,9 +345,7 @@ section { padding: 40px 0; scroll-margin-top: 72px; }
   border-radius: var(--radius-sm); background: var(--card-bg); box-shadow: inset 0 0 0 1px var(--line); max-height: 340px;
 }
 .format img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform .5s; }
-.format img.lb { transform: scale(1.34); }
 .format:hover img { transform: scale(1.05); }
-.format:hover .play-icon, .shot__btn:hover .play-icon { background: var(--accent); color: var(--accent-ink); transform: translate(-50%, -50%) scale(1.1); }
 .format__label {
   position: absolute; left: 8px; bottom: 8px; right: 8px; padding: 4px 8px; border-radius: 4px; width: fit-content; max-width: calc(100% - 16px);
   background: rgba(0, 0, 0, .62); color: #fff; font-size: 11.5px; line-height: 1.3; text-align: left;

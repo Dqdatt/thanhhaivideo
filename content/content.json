@@ -99,19 +99,16 @@
         "afterLabel": "Color grade 4K",
         "formats": [
           {
-            "url": "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
-            "image": "",
+            "image": "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=1200&q=80&auto=format&fit=crop",
             "label": "Bản 16:9 (YouTube)",
             "aspect": "16:9"
           },
           {
-            "url": "",
             "image": "https://images.unsplash.com/photo-1601506521937-0121a7fc2a6b?w=600&q=80&auto=format&fit=crop",
             "label": "Bản 9:16 (TikTok/Reels)",
             "aspect": "9:16"
           },
           {
-            "url": "",
             "image": "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=800&q=80&auto=format&fit=crop",
             "label": "Bản 1:1 (Feed)",
             "aspect": "1:1"
@@ -121,20 +118,17 @@
           {
             "group": "Cảnh quay on-set & BTS",
             "image": "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=800&q=80&auto=format&fit=crop",
-            "caption": "Setup máy quay",
-            "url": ""
+            "caption": "Setup máy quay"
           },
           {
             "group": "Cảnh quay on-set & BTS",
             "image": "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=800&q=80&auto=format&fit=crop",
-            "caption": "Slate từng cảnh",
-            "url": ""
+            "caption": "Slate từng cảnh"
           },
           {
             "group": "VFX & sound breakdown",
             "image": "https://images.unsplash.com/photo-1590602847861-f357a9332bbc?w=800&q=80&auto=format&fit=crop",
-            "caption": "Thu âm & sound design",
-            "url": ""
+            "caption": "Thu âm & sound design"
           }
         ]
       }
@@ -151,6 +145,11 @@
         "buttonText": "Gửi tin nhắn"
       }
     }
+  ],
+  "categories": [
+    "TVC / Commercial",
+    "Short film",
+    "Music video"
   ],
   "videos": [
     {
