@@ -26,7 +26,7 @@ Người xem mở thanhhaivideo.com
 **Trang chủ**
 - **Showreel**: khung video lớn với tiêu đề, nút ▶ phát ngay trong khung (video tải lên thì tự chạy nền không tiếng)
 - **Giới thiệu & chỉ số**: ảnh chân dung, SĐT, email, nút liên hệ, mạng xã hội, các con số (5+ năm kinh nghiệm, 120+ dự án…)
-- **Lưới dự án** có bộ lọc danh mục; bấm vào thẻ để mở trang dự án
+- **Lưới dự án** có bộ lọc danh mục; danh mục có danh mục con (ví dụ TVC → từng công ty) hiện thành các thẻ thư mục, bấm vào để xem video bên trong; bấm vào thẻ video để mở trang dự án
 - **Behind the scenes**: ảnh timeline dựng phim, **thanh kéo so sánh màu trước/sau** (LOG → color grade), **đa định dạng** (16:9, 9:16, 1:1…), ảnh on-set / VFX & sound breakdown theo nhóm
 - **Liên hệ & hợp tác**: form gửi tin nhắn (lưu vào Supabase) + địa chỉ, email, điện thoại
 
@@ -40,7 +40,7 @@ Người xem mở thanhhaivideo.com
 
 **Trang quản trị**
 - Menu xếp theo các khối của trang chủ: **Showreel**, **Giới thiệu**, **Dự án & danh mục**, **Hậu trường**, **Liên hệ**; mỗi khối một tab, ảnh hiện xem trước lớn đúng khung như trên trang
-- **Dự án & danh mục**: thêm / đổi tên / xoá / kéo thả sắp xếp danh mục (thứ tự nút lọc trên trang chủ); dán link hoặc tải file video lên; tự nhận diện nền tảng và lấy tiêu đề; kéo thả sắp xếp dự án; ẩn/hiện; ảnh bìa riêng; thông tin dự án; khung xem trước hiện ngay trang của dự án đang sửa
+- **Dự án & danh mục**: thêm / đổi tên / xoá / kéo thả sắp xếp danh mục (thứ tự nút lọc trên trang chủ) và **danh mục con** (ví dụ TVC → từng công ty; trên trang chủ bấm danh mục sẽ hiện mỗi danh mục con thành một thẻ thư mục, bấm vào để xem các video của công ty đó); dán link hoặc tải file video lên; tự nhận diện nền tảng và lấy tiêu đề; kéo thả sắp xếp dự án; ẩn/hiện; ảnh bìa riêng; thông tin dự án; khung xem trước hiện ngay trang của dự án đang sửa
 - **Bố cục & menu**: kéo thả đổi thứ tự khối; bật/tắt, thêm, nhân bản, xoá khối; tên trên menu; số cột; tỉ lệ ảnh
 - **Tin nhắn**: tin nhắn khách gửi từ form liên hệ, đánh dấu đã đọc, trả lời qua email, xoá
 - **Cài đặt**: logo, favicon, chế độ sáng/tối, màu, font, liên hệ, mạng xã hội, SEO

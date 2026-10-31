@@ -95,6 +95,50 @@
     if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
   }
 
+  function setPressed(buttons, active) {
+    buttons.forEach((b) => {
+      b.classList.toggle('is-active', b === active);
+      b.setAttribute('aria-pressed', String(b === active));
+    });
+  }
+
+  // Hiện dự án theo danh mục (cat) và thư mục danh mục con (sub):
+  // - Tất cả: mọi dự án, không có thư mục
+  // - Danh mục có danh mục con: các thư mục + dự án chưa thuộc danh mục con nào
+  // - Trong thư mục: các dự án của danh mục con đó, kèm thanh quay lại
+  function showProjects(sec, cat, sub, scroll) {
+    const folders = [...sec.querySelectorAll('.card--folder')];
+    const catHasFolders = folders.some((f) => f.dataset.cat === cat);
+    const inFolder = (card) => folders.some((f) => f.dataset.cat === card.dataset.cat && f.dataset.folder === card.dataset.sub);
+    const bar = sec.querySelector('.folderbar');
+    if (bar) {
+      bar.hidden = !sub;
+      bar.dataset.cat = cat;
+      bar.querySelector('.folderbar__back span').textContent = cat;
+      bar.querySelector('.folderbar__name').textContent = sub;
+    }
+    let i = 0;
+    sec.querySelectorAll('.card').forEach((card) => {
+      const isFolder = card.classList.contains('card--folder');
+      let show;
+      if (sub) show = !isFolder && card.dataset.cat === cat && card.dataset.sub === sub;
+      else if (cat && catHasFolders) show = card.dataset.cat === cat && (isFolder || !inFolder(card));
+      else show = !isFolder && (!cat || card.dataset.cat === cat);
+      card.classList.toggle('is-hidden', !show);
+      card.classList.remove('is-filter-in');
+      if (!show) return;
+      card.classList.add('is-in');
+      void card.offsetWidth; // chạy lại animation
+      card.style.animationDelay = `${i++ * 50}ms`;
+      card.classList.add('is-filter-in');
+    });
+    // Mở / đóng thư mục khi đang cuộn xuống giữa lưới: đưa đầu lưới về tầm nhìn
+    const grid = sec.querySelector('.grid');
+    if (scroll && grid && grid.getBoundingClientRect().top < 80) {
+      (bar && !bar.hidden ? bar : grid).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
   // Phát ngay trong khung (showreel, video chính của dự án)
   function playInline(btn) {
     const player = btn.closest('[data-player]');
@@ -132,23 +176,16 @@
     const filter = t.closest('.filter');
     if (filter) {
       const sec = filter.closest('.portfolio');
-      const cat = filter.dataset.filter;
-      sec.querySelectorAll('.filter').forEach((b) => {
-        b.classList.toggle('is-active', b === filter);
-        b.setAttribute('aria-pressed', String(b === filter));
-      });
-      let i = 0;
-      sec.querySelectorAll('.card').forEach((card) => {
-        const show = !cat || card.dataset.cat === cat;
-        card.classList.toggle('is-hidden', !show);
-        card.classList.remove('is-filter-in');
-        if (!show) return;
-        card.classList.add('is-in');
-        void card.offsetWidth; // chạy lại animation
-        card.style.animationDelay = `${i++ * 50}ms`;
-        card.classList.add('is-filter-in');
-      });
-      return;
+      setPressed(sec.querySelectorAll('.filter'), filter);
+      return showProjects(sec, filter.dataset.filter, '');
+    }
+    // Mở thư mục danh mục con (ví dụ một công ty trong TVC) / quay lại danh mục cha
+    const folder = t.closest('.folder');
+    if (folder) return showProjects(folder.closest('.portfolio'), folder.dataset.cat, folder.dataset.sub, true);
+    const back = t.closest('.folderbar__back');
+    if (back) {
+      const bar = back.closest('.folderbar');
+      return showProjects(bar.closest('.portfolio'), bar.dataset.cat, '', true);
     }
 
     const play = t.closest('.js-play');

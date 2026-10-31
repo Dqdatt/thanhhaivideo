@@ -208,6 +208,15 @@ img { display: block; max-width: 100%; }
 .cat.drop-before { box-shadow: 0 -2px 0 var(--accent); }
 .cat.drop-after { box-shadow: 0 2px 0 var(--accent); }
 .cat__count { white-space: nowrap; }
+.cat-group { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.cat-group.dragging { opacity: .4; }
+.cat-group.drop-before { box-shadow: 0 -2px 0 var(--accent); }
+.cat-group.drop-after { box-shadow: 0 2px 0 var(--accent); }
+.cat-group > .cat { border: 0; padding: 0; background: transparent; }
+.cat-group > .cat .input { font-weight: 600; }
+.cat-subs { display: flex; flex-direction: column; gap: 6px; margin-left: 26px; padding-left: 12px; border-left: 2px solid var(--line); }
+.cat-subs .cat .input { height: 30px; font-size: 13px; }
+.row--sm .input { height: 30px; font-size: 13px; }
 .row > .input { flex: 1; min-width: 0; }
 
 /* ===== Tin nhắn ===== */

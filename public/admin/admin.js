@@ -710,104 +710,186 @@
     return (info && info.thumbnail) || '';
   }
 
-  // Danh mục theo thứ tự admin sắp xếp (cũng là thứ tự nút lọc trên trang chủ)
+  // Danh mục theo thứ tự admin sắp xếp (cũng là thứ tự nút lọc trên trang chủ).
+  // Mỗi danh mục: { name, subs: [danh mục con] }, ví dụ TVC / Commercial → từng công ty
   function categories() {
     if (!Array.isArray(state.content.categories)) state.content.categories = [];
     const list = state.content.categories;
-    state.content.videos.forEach((v) => { if (v.category && !list.includes(v.category)) list.push(v.category); });
+    list.forEach((c, i) => { if (typeof c === 'string') list[i] = { name: c, subs: [] }; });
+    state.content.videos.forEach((v) => {
+      if (!v.category) return;
+      let c = list.find((x) => x.name === v.category);
+      if (!c) list.push((c = { name: v.category, subs: [] }));
+      if (v.subcategory && !c.subs.includes(v.subcategory)) c.subs.push(v.subcategory);
+    });
     return list;
   }
 
-  // Thêm danh mục mới, trả về tên đã thêm (hoặc danh mục trùng tên đã có)
+  const cleanName = (s) => String(s || '').trim().slice(0, 60);
+  const sameName = (a, b) => a.toLowerCase() === b.toLowerCase();
+
+  // Thêm danh mục / danh mục con; trùng tên (không phân biệt hoa thường) thì dùng mục đã có
   function addCategory(name) {
-    const n = String(name || '').trim().slice(0, 60);
-    if (!n) return '';
     const list = categories();
-    const same = list.find((c) => c.toLowerCase() === n.toLowerCase());
-    if (same) return same;
-    list.push(n);
-    return n;
+    const same = list.find((c) => sameName(c.name, name));
+    if (same) return { name: same.name, added: false };
+    list.push({ name, subs: [] });
+    return { name, added: true };
+  }
+  function addSubcategory(cat, name) {
+    const same = cat.subs.find((s) => sameName(s, name));
+    if (same) return { name: same, added: false };
+    cat.subs.push(name);
+    return { name, added: true };
+  }
+
+  // Một dòng tên sửa trực tiếp + số dự án + nút xoá (dùng cho danh mục và danh mục con)
+  function nameRow(value, { label, count, taken, rename, remove }) {
+    const input = h('input', { class: 'input', value, 'aria-label': label });
+    input.addEventListener('change', () => {
+      const n = cleanName(input.value);
+      if (!n || n === value) { input.value = value; return; }
+      if (taken(n)) {
+        toast('Tên này đã có', 'err');
+        input.value = value;
+        return;
+      }
+      rename(n);
+      changed({ rerender: true });
+    });
+    return h('div', { class: 'cat' }, gripHandle(), input,
+      h('span', { class: 'dim cat__count' }, `${count} dự án`),
+      h('button', { class: 'btn btn--ghost btn--icon btn--danger', title: 'Xoá', 'aria-label': `Xoá ${value}`, onclick: async () => {
+        if (count && !(await confirmBox(`Xoá "${value}"? ${count} dự án đang dùng sẽ bị bỏ khỏi mục này.`, { ok: 'Xoá', danger: true }))) return;
+        remove();
+        changed({ rerender: true });
+      } }, icon('trash')));
+  }
+
+  // Ô nhập tên + nút thêm. onAdd trả về false khi tên đã có
+  function addRow(placeholder, label, onAdd, small) {
+    const input = h('input', { class: 'input', placeholder });
+    const add = () => {
+      const n = cleanName(input.value);
+      if (!n) return input.focus();
+      if (onAdd(n) === false) return toast('Tên này đã có', 'err');
+      changed({ rerender: true });
+    };
+    input.addEventListener('keydown', (e) => e.key === 'Enter' && add());
+    return h('div', { class: `row${small ? ' row--sm' : ''}` }, input, h('button', { class: `btn${small ? ' btn--sm' : ''}`, onclick: add }, icon('plus'), label));
   }
 
   function categoryManager() {
     const list = categories();
-    const count = (c) => state.content.videos.filter((v) => v.category === c).length;
+    const videos = state.content.videos;
     const rows = h('div', { class: 'cat-list' }, list.map((c, i) => {
-      const name = h('input', { class: 'input', value: c, 'aria-label': 'Tên danh mục' });
-      // Đổi tên: cập nhật luôn các dự án đang dùng danh mục này
-      name.addEventListener('change', () => {
-        const n = name.value.trim().slice(0, 60);
-        if (!n || n === c) { name.value = c; return; }
-        if (list.some((x, j) => j !== i && x.toLowerCase() === n.toLowerCase())) {
-          toast('Đã có danh mục này', 'err');
-          name.value = c;
-          return;
-        }
-        list[i] = n;
-        state.content.videos.forEach((v) => { if (v.category === c) v.category = n; });
-        changed({ rerender: true });
-      });
-      return h('div', { class: 'cat', 'data-index': i },
-        gripHandle(), name,
-        h('span', { class: 'dim cat__count' }, `${count(c)} dự án`),
-        h('button', { class: 'btn btn--ghost btn--icon btn--danger', title: 'Xoá', 'aria-label': `Xoá danh mục ${c}`, onclick: async () => {
-          const n = count(c);
-          if (n && !(await confirmBox(`Xoá danh mục "${c}"? ${n} dự án đang thuộc danh mục này sẽ không còn danh mục.`, { ok: 'Xoá', danger: true }))) return;
-          list.splice(i, 1);
-          state.content.videos.forEach((v) => { if (v.category === c) v.category = ''; });
-          changed({ rerender: true });
-        } }, icon('trash')));
+      const inCat = (v) => v.category === c.name;
+      const subs = h('div', { class: 'cat-list' }, c.subs.map((s, j) => {
+        const inSub = (v) => inCat(v) && v.subcategory === s;
+        const row = nameRow(s, {
+          label: 'Tên danh mục con',
+          count: videos.filter(inSub).length,
+          taken: (n) => c.subs.some((x, k) => k !== j && sameName(x, n)),
+          rename: (n) => {
+            videos.filter(inSub).forEach((v) => { v.subcategory = n; });
+            c.subs[j] = n;
+          },
+          remove: () => {
+            videos.filter(inSub).forEach((v) => { v.subcategory = ''; });
+            c.subs.splice(j, 1);
+          },
+        });
+        row.dataset.index = j;
+        return row;
+      }));
+      makeSortable(subs, c.subs, () => changed({ rerender: true }));
+      return h('div', { class: 'cat-group', 'data-index': i },
+        nameRow(c.name, {
+          label: 'Tên danh mục',
+          count: videos.filter(inCat).length,
+          taken: (n) => list.some((x, k) => k !== i && sameName(x.name, n)),
+          rename: (n) => {
+            videos.filter(inCat).forEach((v) => { v.category = n; });
+            c.name = n;
+          },
+          remove: () => {
+            videos.filter(inCat).forEach((v) => { v.category = ''; v.subcategory = ''; });
+            list.splice(i, 1);
+          },
+        }),
+        h('div', { class: 'cat-subs' },
+          c.subs.length ? subs : null,
+          addRow(`Danh mục con của ${c.name}, ví dụ tên công ty`, 'Thêm', (n) => addSubcategory(c, n).added, true)));
     }));
     makeSortable(rows, list, () => changed({ rerender: true }));
 
-    const input = h('input', { class: 'input', placeholder: 'Tên danh mục mới, ví dụ: TVC / Commercial' });
-    const add = () => {
-      const before = list.length;
-      const n = addCategory(input.value);
-      if (!n) return input.focus();
-      if (list.length === before) return toast('Đã có danh mục này', 'err');
-      input.value = '';
-      changed({ rerender: true });
-    };
-    input.addEventListener('keydown', (e) => e.key === 'Enter' && add());
     return h('div', { class: 'panel stack' },
       h('h3', {}, 'Danh mục (nút lọc trên trang chủ)'),
-      h('p', { class: 'dim', style: { margin: '-8px 0 0' } }, 'Kéo ⋮⋮ để đổi thứ tự nút lọc, sửa tên trực tiếp trong ô. Danh mục chưa có dự án nào sẽ không hiện trên trang.'),
+      h('p', { class: 'dim', style: { margin: '-8px 0 0' } }, 'Kéo ⋮⋮ để đổi thứ tự, sửa tên trực tiếp trong ô. Mỗi danh mục có thể có danh mục con (ví dụ TVC → từng công ty): trên trang chủ, bấm danh mục sẽ hiện mỗi danh mục con thành một thẻ thư mục, bấm vào thư mục để xem các video bên trong. Mục chưa có dự án nào sẽ không hiện trên trang.'),
       list.length ? rows : null,
-      h('div', { class: 'row' }, input, h('button', { class: 'btn', onclick: add }, icon('plus'), 'Thêm danh mục')));
+      addRow('Tên danh mục mới, ví dụ: TVC / Commercial', 'Thêm danh mục', (n) => addCategory(n).added));
   }
 
-  // Ô chọn danh mục của dự án (có lựa chọn thêm danh mục mới)
-  function categorySelect(p) {
+  // Ô chọn có lựa chọn "＋ Thêm mới…" (mở hộp nhập tên)
+  function pickSelect(value, options, o) {
     const NEW = '__new__';
-    const sel = h('select', { onchange: () => {
-      if (sel.value !== NEW) {
-        p.category = sel.value;
-        changed();
-        return;
-      }
-      sel.value = p.category || '';
-      const inp = h('input', { placeholder: 'Ví dụ: Music video' });
+    const sel = h('select', { disabled: o.disabled, onchange: () => {
+      if (sel.value !== NEW) return o.onPick(sel.value);
+      sel.value = value || '';
+      const inp = h('input', { placeholder: o.placeholder });
       modal({
-        title: 'Thêm danh mục',
-        body: h('label', { class: 'field' }, h('span', {}, 'Tên danh mục'), inp),
+        title: o.addTitle,
+        body: h('label', { class: 'field' }, h('span', {}, 'Tên'), inp),
         foot: (close) => {
           const ok = () => {
-            const n = addCategory(inp.value);
+            const n = cleanName(inp.value);
             if (!n) return inp.focus();
-            p.category = n;
+            const name = o.onAdd(n);
             close();
-            changed({ rerender: true });
+            o.onPick(name);
           };
           inp.addEventListener('keydown', (e) => e.key === 'Enter' && ok());
           return [h('button', { class: 'btn', onclick: close }, 'Huỷ'), h('button', { class: 'btn btn--primary', onclick: ok }, 'Thêm')];
         },
       });
     } },
-      h('option', { value: '' }, '— Không có danh mục —'),
-      categories().map((c) => h('option', { value: c, selected: c === p.category }, c)),
-      h('option', { value: NEW }, '＋ Thêm danh mục mới…'));
+      h('option', { value: '' }, o.empty),
+      options.map((c) => h('option', { value: c, selected: c === value }, c)),
+      h('option', { value: NEW }, o.addLabel));
     return sel;
+  }
+
+  // Danh mục của dự án; đổi danh mục thì bỏ danh mục con cũ
+  function categorySelect(p) {
+    return pickSelect(p.category, categories().map((c) => c.name), {
+      empty: '— Không có danh mục —',
+      addLabel: '＋ Thêm danh mục mới…',
+      addTitle: 'Thêm danh mục',
+      placeholder: 'Ví dụ: Music video',
+      onAdd: (n) => addCategory(n).name,
+      onPick: (v) => {
+        if (v === p.category) return changed({ rerender: true });
+        p.category = v;
+        p.subcategory = '';
+        changed({ rerender: true });
+      },
+    });
+  }
+
+  function subcategorySelect(p) {
+    const cat = categories().find((c) => c.name === p.category);
+    return pickSelect(p.subcategory || '', cat ? cat.subs : [], {
+      disabled: !cat,
+      empty: cat ? '— Không có —' : 'Chọn danh mục trước',
+      addLabel: '＋ Thêm danh mục con mới…',
+      addTitle: cat ? `Thêm danh mục con cho "${cat.name}"` : '',
+      placeholder: 'Ví dụ: tên công ty',
+      onAdd: (n) => addSubcategory(cat, n).name,
+      onPick: (v) => {
+        p.subcategory = v;
+        changed({ rerender: true });
+      },
+    });
   }
 
   // Đường dẫn trang chi tiết của dự án (theo nội dung đã chuẩn hoá)
@@ -832,7 +914,7 @@
 
   function newProject(url = '') {
     const p = {
-      id: uid('v'), title: '', description: '', url, thumbnail: '', category: '', visible: true,
+      id: uid('v'), title: '', description: '', url, thumbnail: '', category: '', subcategory: '', visible: true,
       client: '', role: '', software: '', equipment: '', year: String(new Date().getFullYear()), summary: '',
     };
     state.content.videos.unshift(p);
@@ -881,7 +963,7 @@
             h('strong', {}, v.title || '(Chưa có tiêu đề)'),
             h('div', { class: 'row row--wrap' },
               info ? h('span', { class: `badge badge--${info.provider}` }, PROVIDER_LABEL[info.provider]) : h('span', { class: 'badge badge--bad' }, v.url ? 'Link không nhận diện' : 'Chưa có link'),
-              v.category ? h('span', { class: 'badge' }, v.category) : null,
+              v.category ? h('span', { class: 'badge' }, v.subcategory ? `${v.category} › ${v.subcategory}` : v.category) : null,
               v.role || v.client ? h('span', { class: 'badge badge--ok' }, 'Có thông tin dự án') : null))),
         h('div', { class: 'item-actions' },
           field(v, 'visible', { type: 'switch', label: h('span', { class: 'dim' }, 'Hiện'), onChange: () => setTimeout(() => renderMain(), 0) }),
@@ -1006,9 +1088,10 @@
 
       h('div', { class: 'panel stack' }, h('h3', {}, 'Thẻ trên lưới dự án'),
         title,
+        field(p, 'description', { label: 'Dòng phụ dưới tên', placeholder: 'Ví dụ: Lead Editor, Colorist' }),
         h('div', { class: 'grid-2' },
-          field(p, 'description', { label: 'Dòng phụ dưới tên', placeholder: 'Ví dụ: Lead Editor, Colorist' }),
-          h('label', { class: 'field' }, h('span', {}, 'Danh mục (dùng để lọc)'), categorySelect(p))),
+          h('label', { class: 'field' }, h('span', {}, 'Danh mục (dùng để lọc)'), categorySelect(p)),
+          h('label', { class: 'field' }, h('span', {}, 'Danh mục con (ví dụ tên công ty)'), subcategorySelect(p))),
         imageField(p, 'thumbnail', { label: 'Ảnh bìa riêng (không bắt buộc)', hint: 'Để trống sẽ tự lấy ảnh bìa từ YouTube / Vimeo / Drive.', ratio: '16 / 10', maxWidth: '420px' }),
         h('div', { class: 'grid-2' }, slug,
           h('div', { class: 'field' }, h('span', {}, 'Hiển thị'), field(p, 'visible', { type: 'switch', label: 'Hiện trên trang' })))),
@@ -1189,7 +1272,7 @@
             field(d, 'columns', { type: 'select', number: true, label: 'Số cột', options: [[1, '1 cột'], [2, '2 cột'], [3, '3 cột'], [4, '4 cột']] }),
             field(d, 'aspect', { type: 'select', label: 'Tỉ lệ ảnh', options: [['16:10', '16:10'], ['16:9', '16:9 (ngang)'], ['4:3', '4:3'], ['1:1', '1:1 (vuông)'], ['9:16', '9:16 (dọc)']] }),
             field(d, 'limit', { type: 'number', label: 'Số dự án tối đa', min: 0, max: 200, hint: '0 = hiện tất cả' })),
-          field(d, 'category', { type: 'select', label: 'Chỉ hiện danh mục', options: [['', 'Tất cả danh mục'], ...categories()] }),
+          field(d, 'category', { type: 'select', label: 'Chỉ hiện danh mục', options: [['', 'Tất cả danh mục'], ...categories().map((c) => c.name)] }),
           field(d, 'showFilter', { type: 'switch', label: 'Hiện nút lọc theo danh mục' }),
           h('p', { class: 'dim', style: { margin: 0 } }, 'Dự án được quản lý ở tab ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); switchTab('videos'); } }, 'Dự án'), '.'));
 

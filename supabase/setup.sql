@@ -275,9 +275,21 @@ values (1, $seed${
     }
   ],
   "categories": [
-    "TVC / Commercial",
-    "Short film",
-    "Music video"
+    {
+      "name": "TVC / Commercial",
+      "subs": [
+        "Thương hiệu A",
+        "Thương hiệu B"
+      ]
+    },
+    {
+      "name": "Short film",
+      "subs": []
+    },
+    {
+      "name": "Music video",
+      "subs": []
+    }
   ],
   "videos": [
     {
@@ -288,8 +300,9 @@ values (1, $seed${
       "url": "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
       "thumbnail": "",
       "category": "TVC / Commercial",
+      "subcategory": "Thương hiệu A",
       "visible": true,
-      "client": "Thương hiệu ABC",
+      "client": "Thương hiệu A",
       "role": "Lead Editor, Colorist",
       "software": "DaVinci Resolve, Premiere Pro",
       "equipment": "Sony FX6, DJI Ronin",
@@ -304,9 +317,27 @@ values (1, $seed${
       "url": "https://www.youtube.com/watch?v=eRsGyueVLvQ",
       "thumbnail": "",
       "category": "TVC / Commercial",
+      "subcategory": "Thương hiệu B",
       "visible": true,
-      "client": "",
+      "client": "Thương hiệu B",
       "role": "Editor",
+      "software": "",
+      "equipment": "",
+      "year": "",
+      "summary": ""
+    },
+    {
+      "id": "v7",
+      "slug": "product-launch",
+      "title": "Product Launch",
+      "description": "Editor, Colorist",
+      "url": "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+      "thumbnail": "",
+      "category": "TVC / Commercial",
+      "subcategory": "Thương hiệu A",
+      "visible": true,
+      "client": "Thương hiệu A",
+      "role": "Editor, Colorist",
       "software": "",
       "equipment": "",
       "year": "",
@@ -320,6 +351,7 @@ values (1, $seed${
       "url": "https://www.youtube.com/watch?v=R6MlUcmOul8",
       "thumbnail": "",
       "category": "Short film",
+      "subcategory": "",
       "visible": true,
       "client": "",
       "role": "Editor, Colorist",
@@ -336,6 +368,7 @@ values (1, $seed${
       "url": "https://www.youtube.com/watch?v=WhWc3b3KhnY",
       "thumbnail": "",
       "category": "Music video",
+      "subcategory": "",
       "visible": true,
       "client": "",
       "role": "Editor",
@@ -352,6 +385,7 @@ values (1, $seed${
       "url": "https://www.youtube.com/watch?v=_cMxraX_5RE",
       "thumbnail": "",
       "category": "Short film",
+      "subcategory": "",
       "visible": true,
       "client": "",
       "role": "Editor, Colorist",
@@ -368,6 +402,7 @@ values (1, $seed${
       "url": "https://www.youtube.com/watch?v=mN0zPOpADL4",
       "thumbnail": "",
       "category": "Music video",
+      "subcategory": "",
       "visible": true,
       "client": "",
       "role": "Editor, VFX",
