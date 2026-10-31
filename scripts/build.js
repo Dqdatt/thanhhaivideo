@@ -1,17 +1,20 @@
 // Build trang tĩnh cho GitHub Pages: node scripts/build.js
 // - Lấy nội dung mới nhất từ Supabase (dự phòng: content/content.json), render ra dist/index.html
+//   và trang chi tiết từng dự án dist/du-an/<slug>/index.html
 // - Copy CSS/JS và trang admin
 // - Đóng gói code render (js/portfolio.bundle.js) để trang web và admin render ngay trong trình duyệt
+// Thêm --local để dùng content/content.json (không đọc Supabase, trang không tự tải nội dung mới)
 const fs = require('fs');
 const path = require('path');
 const { normalizeContent } = require('../lib/schema');
-const { renderPage } = require('../lib/render');
+const { renderPage, renderProjectPage, projectPath, isPublic } = require('../lib/render');
 const VideoUtils = require('../public/js/video-utils');
 const pkg = require('../package.json');
 
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'dist');
 const CONTENT_FILE = path.join(ROOT, 'content', 'content.json');
+const LOCAL = process.argv.includes('--local');
 
 // Cấu hình Supabase (publishable key là khoá công khai, dữ liệu được bảo vệ bằng RLS)
 const config = {
@@ -23,7 +26,7 @@ const config = {
 
 // Nội dung mới nhất: Supabase -> content/content.json
 async function loadContent() {
-  if (config.supabaseUrl && config.supabaseKey && typeof fetch === 'function') {
+  if (!LOCAL && config.supabaseUrl && config.supabaseKey && typeof fetch === 'function') {
     try {
       const res = await fetch(`${config.supabaseUrl}/rest/v1/site_content?id=eq.1&select=content,updated_at`, {
         headers: { apikey: config.supabaseKey },
@@ -89,6 +92,61 @@ ${exportsCode}
 `;
 }
 
+// Trang 404: GitHub Pages trả trang này cho mọi đường dẫn không có sẵn.
+// Dự án thêm sau lần build gần nhất (/du-an/<slug>/) được render ngay từ nội dung trên Supabase;
+// đường dẫn khác thì về trang chủ.
+function notFoundPage(version) {
+  const v = JSON.stringify(version);
+  return `<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Đang tải…</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0e1012;color:#959ca2;font:14px system-ui,sans-serif}</style>
+</head>
+<body>
+<p>Đang tải…</p>
+<script>
+(function () {
+  var v = ${v};
+  var path = location.pathname, at = path.indexOf('/du-an/');
+  var root = at >= 0 ? path.slice(0, at + 1) : '/';
+  var slug = at >= 0 ? decodeURIComponent(path.slice(at + 7).split('/')[0]) : '';
+  function home() { location.replace(root); }
+  function load(src) {
+    return new Promise(function (ok, fail) {
+      var s = document.createElement('script');
+      s.src = root + src + '?v=' + v;
+      s.onload = ok;
+      s.onerror = fail;
+      document.head.appendChild(s);
+    });
+  }
+  if (!slug) return home();
+  load('js/config.js').then(function () {
+    var cfg = window.PORTFOLIO_CONFIG;
+    return Promise.all([
+      fetch(cfg.supabaseUrl + '/rest/v1/site_content?id=eq.1&select=content,updated_at', { headers: { apikey: cfg.supabaseKey }, cache: 'no-store' }).then(function (r) { return r.json(); }),
+      load('js/portfolio.bundle.js'),
+    ]);
+  }).then(function (res) {
+    var row = res[0] && res[0][0];
+    var P = window.Portfolio;
+    var html = row && P.renderProjectPage(P.normalizeContent(row.content), slug, { base: root, live: true, contentVersion: row.updated_at, version: v });
+    if (!html) return home();
+    document.open();
+    document.write(html);
+    document.close();
+  }).catch(home);
+})();
+</script>
+</body>
+</html>
+`;
+}
+
 async function main() {
   fs.rmSync(OUT, { recursive: true, force: true });
   fs.mkdirSync(OUT, { recursive: true });
@@ -99,10 +157,16 @@ async function main() {
   const version = Date.now().toString(36);
 
   // Trang chính (live: khi mở trang sẽ kiểm tra Supabase có bản mới hơn không)
-  fs.writeFileSync(path.join(OUT, 'index.html'), renderPage(content, {
-    thumbs: (id) => thumbs.get(id), version, live: true, contentVersion: loaded.version,
-  }));
-  fs.writeFileSync(path.join(OUT, '404.html'), '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=/"><title>Đang chuyển…</title><a href="/">Về trang chủ</a>');
+  const opts = { thumbs: (id) => thumbs.get(id), version, live: !LOCAL, contentVersion: loaded.version };
+  fs.writeFileSync(path.join(OUT, 'index.html'), renderPage(content, opts));
+  // Trang chi tiết từng dự án (base ../../ để dùng chung css/js ở gốc)
+  const projects = content.videos.filter(isPublic);
+  for (const p of projects) {
+    const dir = path.join(OUT, decodeURIComponent(projectPath(p)));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'index.html'), renderProjectPage(content, p.slug, { ...opts, base: '../../' }));
+  }
+  fs.writeFileSync(path.join(OUT, '404.html'), notFoundPage(version));
   fs.writeFileSync(path.join(OUT, '.nojekyll'), '');
   fs.writeFileSync(path.join(OUT, 'robots.txt'), 'User-agent: *\nDisallow: /admin/\n');
 
@@ -123,18 +187,22 @@ async function main() {
     '../public/js/video-utils': 'public/js/video-utils.js',
     './render': 'lib/render.js',
   }, `var schema = req('./schema');
+var render = req('./render');
 window.VideoUtils = req('../public/js/video-utils');
 window.Portfolio = {
-  renderPage: req('./render').renderPage,
+  renderPage: render.renderPage,
+  renderProjectPage: render.renderProjectPage,
   normalizeContent: schema.normalizeContent,
+  slugify: schema.slugify,
   FONTS: schema.FONTS,
-  ICONS: schema.ICONS,
+  ASPECTS: schema.ASPECTS,
+  SOCIALS: schema.SOCIALS,
   icon: req('./icons').icon,
 };`));
 
   const files = [];
   (function walk(d) { for (const n of fs.readdirSync(d)) { const p = path.join(d, n); fs.statSync(p).isDirectory() ? walk(p) : files.push(p); } })(OUT);
-  console.log(`Build xong: ${files.length} file trong dist/ (nội dung từ ${loaded.source}, ảnh HD: ${[...thumbs.values()].filter((v) => v === 'hd').length}/${thumbs.size})`);
+  console.log(`Build xong: ${files.length} file trong dist/, ${projects.length} trang dự án (nội dung từ ${loaded.source}, ảnh HD: ${[...thumbs.values()].filter((v) => v === 'hd').length}/${thumbs.size})`);
 }
 
 main().catch((err) => {

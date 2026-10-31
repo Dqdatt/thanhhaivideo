@@ -4,10 +4,18 @@
 
   /* ================= Sự kiện dùng chung (gắn 1 lần, ủy quyền qua document) ================= */
 
-  // Header: viền khi cuộn
+  // Header: viền khi cuộn + đánh dấu mục menu đang xem (trang chủ)
   const onScroll = () => {
     const header = document.querySelector('.header');
     if (header) header.classList.toggle('is-scrolled', window.scrollY > 8);
+    if (root.dataset.page !== 'home') return;
+    const links = [...document.querySelectorAll('.nav > a[href^="#"]')];
+    let current = null;
+    for (const a of links) {
+      const sec = document.getElementById(a.getAttribute('href').slice(1));
+      if (sec && sec.getBoundingClientRect().top < window.innerHeight * 0.35) current = a;
+    }
+    links.forEach((a) => a.classList.toggle('is-active', a === current));
   };
   window.addEventListener('scroll', onScroll, { passive: true });
 
@@ -29,46 +37,75 @@
     });
   }
 
-  // Lightbox xem video
-  let lastFocus = null;
-  function openVideo(el) {
-    const box = document.querySelector('.lightbox');
-    const { embed, provider, link, vertical } = el.dataset;
-    if (!embed) {
-      if (link) window.open(link, '_blank', 'noopener');
-      return;
-    }
-    if (!box) return;
-    const frame = box.querySelector('.lightbox__frame');
-    lastFocus = el;
-    frame.textContent = '';
+  // Tạo khung phát video từ data-embed / data-provider
+  function mediaEl({ embed, provider }) {
     if (provider === 'file') {
       const v = document.createElement('video');
       v.src = embed;
       v.controls = true;
       v.autoplay = true;
       v.playsInline = true;
-      frame.appendChild(v);
-    } else {
-      const f = document.createElement('iframe');
-      f.src = embed;
-      f.allow = 'autoplay; fullscreen; picture-in-picture; encrypted-media';
-      f.allowFullscreen = true;
-      f.title = 'Video';
-      frame.appendChild(f);
+      return v;
     }
-    box.querySelector('.lightbox__box').classList.toggle('is-vertical', vertical === '1');
+    const f = document.createElement('iframe');
+    f.src = embed;
+    f.allow = 'autoplay; fullscreen; picture-in-picture; encrypted-media';
+    f.allowFullscreen = true;
+    f.title = 'Video';
+    return f;
+  }
+
+  // Lightbox xem video / ảnh
+  let lastFocus = null;
+  function openBox(content, mode) {
+    const box = document.querySelector('.lightbox');
+    if (!box) return;
+    const frame = box.querySelector('.lightbox__frame');
+    frame.replaceChildren(content);
+    const inner = box.querySelector('.lightbox__box');
+    inner.classList.toggle('is-vertical', mode === 'vertical');
+    inner.classList.toggle('is-image', mode === 'image');
     box.hidden = false;
     document.body.style.overflow = 'hidden';
     box.querySelector('.lightbox__close').focus();
   }
-  function closeVideo() {
+  function openVideo(el) {
+    const { embed, link, vertical } = el.dataset;
+    if (!embed) {
+      if (link) window.open(link, '_blank', 'noopener');
+      return;
+    }
+    lastFocus = el;
+    openBox(mediaEl(el.dataset), vertical === '1' ? 'vertical' : 'video');
+  }
+  function openImage(el) {
+    if (!el.dataset.src) return;
+    lastFocus = el;
+    const img = document.createElement('img');
+    img.src = el.dataset.src;
+    img.alt = el.getAttribute('aria-label') || '';
+    openBox(img, 'image');
+  }
+  function closeBox() {
     const box = document.querySelector('.lightbox');
     if (!box || box.hidden) return;
     box.hidden = true;
     box.querySelector('.lightbox__frame').textContent = '';
     document.body.style.overflow = '';
     if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
+  }
+
+  // Phát ngay trong khung (showreel, video chính của dự án)
+  function playInline(btn) {
+    const player = btn.closest('[data-player]');
+    const slot = player && player.querySelector('.player__slot');
+    const { embed, vertical } = btn.dataset;
+    // Video dọc trong khung ngang (hoặc link không nhúng được): mở popup
+    if (!slot || !embed || (vertical === '1' && player.classList.contains('showreel__stage'))) return openVideo(btn);
+    slot.replaceChildren(mediaEl(btn.dataset));
+    player.classList.add('is-playing');
+    const bg = player.querySelector('video.showreel__bg');
+    if (bg) bg.pause();
   }
 
   document.addEventListener('click', (e) => {
@@ -91,12 +128,15 @@
       return;
     }
 
-    // Lọc video theo danh mục
+    // Lọc dự án theo danh mục
     const filter = t.closest('.filter');
     if (filter) {
       const sec = filter.closest('.portfolio');
       const cat = filter.dataset.filter;
-      sec.querySelectorAll('.filter').forEach((b) => b.classList.toggle('is-active', b === filter));
+      sec.querySelectorAll('.filter').forEach((b) => {
+        b.classList.toggle('is-active', b === filter);
+        b.setAttribute('aria-pressed', String(b === filter));
+      });
       let i = 0;
       sec.querySelectorAll('.card').forEach((card) => {
         const show = !cat || card.dataset.cat === cat;
@@ -111,22 +151,70 @@
       return;
     }
 
-    // Nút ‹ › của dải đánh giá
-    const arrow = t.closest('.reviews__arrow');
-    if (arrow) {
-      const track = arrow.closest('.reviews').querySelector('.reviews__track');
-      const card = track.querySelector('.review');
-      const step = card ? card.getBoundingClientRect().width + 16 : track.clientWidth * 0.8;
-      track.scrollBy({ left: step * Number(arrow.dataset.dir), behavior: 'smooth' });
-      return;
-    }
-
-    const trigger = t.closest('.js-video');
-    if (trigger) return openVideo(trigger);
-    if (t.closest('[data-close]')) closeVideo();
+    const play = t.closest('.js-play');
+    if (play) return playInline(play);
+    const video = t.closest('.js-video');
+    if (video) return openVideo(video);
+    const image = t.closest('.js-image');
+    if (image) return openImage(image);
+    if (t.closest('[data-close]')) closeBox();
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeVideo();
+    if (e.key === 'Escape') closeBox();
+  });
+
+  // Thanh so sánh màu trước / sau
+  document.addEventListener('input', (e) => {
+    const range = e.target.closest && e.target.closest('.compare__range');
+    if (range) range.closest('.compare').style.setProperty('--pos', `${range.value}%`);
+  });
+
+  /* ================= Form liên hệ ================= */
+  // Gửi vào bảng contact_messages trên Supabase (xem trong /admin → Tin nhắn).
+  // Không gửi được (mất mạng, chưa thiết lập) thì mở ứng dụng email với nội dung đã điền.
+
+  document.addEventListener('submit', async (e) => {
+    const form = e.target.closest('.contact-form');
+    if (!form) return;
+    e.preventDefault();
+    const status = form.querySelector('.contact-form__status');
+    const btn = form.querySelector('button[type="submit"]');
+    const val = (n) => (form.elements[n] ? form.elements[n].value.trim() : '');
+    const data = { name: val('name'), email: val('email'), message: val('message'), project: val('project') };
+    const say = (msg, kind) => {
+      status.textContent = msg;
+      status.className = `contact-form__status${kind ? ` is-${kind}` : ''}`;
+    };
+    if (!data.name || !data.message || !/^\S+@\S+\.\S+$/.test(data.email)) return say('Vui lòng nhập họ tên, email hợp lệ và lời nhắn.', 'err');
+    if (val('website')) return say('Đã gửi. Cảm ơn bạn!', 'ok'); // bot điền ô ẩn
+    if (document.body.classList.contains('is-preview')) return say('Đây là bản xem trước, form chưa gửi đi.', '');
+
+    btn.disabled = true;
+    say('Đang gửi…');
+    const cfg = window.PORTFOLIO_CONFIG;
+    try {
+      if (!cfg || !cfg.supabaseUrl) throw new Error('no-config');
+      const res = await fetch(`${cfg.supabaseUrl}/rest/v1/contact_messages`, {
+        method: 'POST',
+        headers: { apikey: cfg.supabaseKey, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify({ ...data, project: data.project || null }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      form.reset();
+      say('Đã gửi tin nhắn. Mình sẽ phản hồi sớm nhất!', 'ok');
+    } catch (err) {
+      const to = form.dataset.email;
+      if (to) {
+        const subject = `Liên hệ từ website${data.project ? ` — ${data.project}` : ''}`;
+        const body = `${data.message}\n\n— ${data.name} (${data.email})`;
+        window.location.href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        say('Đang mở ứng dụng email để gửi tin nhắn…', '');
+      } else {
+        say('Chưa gửi được, vui lòng thử lại sau.', 'err');
+      }
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   /* ================= Khởi tạo phần tử trên trang (chạy lại sau khi thay nội dung) ================= */
@@ -155,23 +243,6 @@
     } else {
       items.forEach((el) => el.classList.add('is-in'));
     }
-
-    // Trạng thái nút ‹ › của dải đánh giá
-    document.querySelectorAll('.reviews').forEach((sec) => {
-      const track = sec.querySelector('.reviews__track');
-      const nav = sec.querySelector('.reviews__nav');
-      if (!track || !nav) return;
-      const [prev, next] = nav.querySelectorAll('.reviews__arrow');
-      const update = () => {
-        const max = track.scrollWidth - track.clientWidth;
-        nav.hidden = max <= 2;
-        prev.disabled = track.scrollLeft <= 2;
-        next.disabled = track.scrollLeft >= max - 2;
-      };
-      track.addEventListener('scroll', update, { passive: true });
-      window.addEventListener('resize', update);
-      update();
-    });
   }
 
   init();
@@ -240,7 +311,17 @@
       const v = root.dataset.assetVersion || '1';
       if (!window.Portfolio) await loadScript(`js/portfolio.bundle.js?v=${encodeURIComponent(v)}`);
       const P = window.Portfolio;
-      swapPage(P.renderPage(P.normalizeContent(row.content), { live: true, contentVersion: row.updated_at, version: v }));
+      const content = P.normalizeContent(row.content);
+      const baseEl = document.querySelector('base');
+      const opts = { live: true, contentVersion: row.updated_at, version: v, base: baseEl ? baseEl.getAttribute('href') : '' };
+      if (root.dataset.page === 'project') {
+        const html = P.renderProjectPage(content, root.dataset.slug, opts);
+        // Dự án vừa bị ẩn / đổi đường dẫn: về trang chủ
+        if (!html) return window.location.replace(baseEl ? baseEl.href : './');
+        swapPage(html);
+      } else {
+        swapPage(P.renderPage(content, opts));
+      }
     } catch (e) {
       // Lỗi mạng: giữ nguyên bản build sẵn
     }

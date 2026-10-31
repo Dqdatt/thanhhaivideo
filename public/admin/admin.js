@@ -3,7 +3,7 @@
 (() => {
   const $app = document.getElementById('app');
   const CFG = window.PORTFOLIO_CONFIG;
-  const P = window.Portfolio; // renderPage, normalizeContent, FONTS, ICONS, icon (từ portfolio.bundle.js)
+  const P = window.Portfolio; // renderPage, renderProjectPage, normalizeContent, slugify, FONTS… (từ portfolio.bundle.js)
   const sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
   });
@@ -16,6 +16,8 @@
     savedJson: '',
     version: null, // updated_at của nội dung đang sửa, dùng để phát hiện xung đột khi lưu
     tab: 'videos',
+    editing: null, // id dự án đang sửa (tab Dự án)
+    unread: 0, // số tin nhắn liên hệ chưa đọc
     openSection: null,
     showPreview: localGet('preview') !== '0',
     previewMode: 'desktop',
@@ -72,6 +74,10 @@
     library: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
     play: '<path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/>',
     download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
+    back: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
+    mail: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/>',
+    reply: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
   };
   const icon = (name) => {
     const span = document.createElement('span');
@@ -90,6 +96,7 @@
     if (/rate limit|too many/i.test(msg)) return 'Thao tác quá nhiều lần, thử lại sau ít phút';
     if (/jwt expired|session/i.test(msg)) return 'Phiên đăng nhập đã hết hạn, hãy đăng nhập lại';
     if (/row-level security|permission denied/i.test(msg)) return 'Tài khoản không có quyền thực hiện thao tác này';
+    if (/contact_messages/i.test(msg)) return 'Chưa có bảng tin nhắn — hãy chạy lại file supabase/setup.sql';
     if (/site_content|schema cache/i.test(msg)) return 'Chưa thiết lập database — hãy chạy file supabase/setup.sql';
     if (/should be at least|weak password/i.test(msg)) return 'Mật khẩu quá ngắn hoặc quá dễ đoán';
     if (/same.*password|different from the old/i.test(msg)) return 'Mật khẩu mới phải khác mật khẩu cũ';
@@ -199,6 +206,10 @@
     counts.forEach((c) => {
       if (c.dataset.count === 'videos') c.textContent = state.content.videos.length;
       if (c.dataset.count === 'sections') c.textContent = state.content.sections.filter((s) => s.enabled).length;
+      if (c.dataset.count === 'messages') {
+        c.textContent = state.unread || '';
+        c.classList.toggle('count--new', state.unread > 0);
+      }
     });
   }
 
@@ -273,10 +284,15 @@
     if (!frame || !state.content || frame.offsetParent === null) return;
     const seq = ++previewSeq;
     try {
-      const html = P.renderPage(P.normalizeContent(state.content), { preview: true, base: SITE, version: 'preview' });
+      const content = P.normalizeContent(state.content);
+      const opts = { preview: true, base: SITE, version: 'preview' };
+      // Đang sửa một dự án: xem trước trang của dự án đó
+      const key = state.tab === 'videos' && state.editing ? state.editing : '';
+      const html = (key && P.renderProjectPage(content, key, opts)) || P.renderPage(content, opts);
       if (seq !== previewSeq) return;
       let scroll = 0;
-      try { scroll = frame.contentWindow.scrollY; } catch { /* bỏ qua */ }
+      try { if (frame.dataset.key === key) scroll = frame.contentWindow.scrollY; } catch { /* bỏ qua */ }
+      frame.dataset.key = key;
       frame.onload = () => {
         try {
           frame.contentDocument.documentElement.style.scrollBehavior = 'auto';
@@ -285,6 +301,11 @@
           frame.contentDocument.addEventListener('click', (e) => {
             const a = e.target.closest('a');
             if (!a) return;
+            // Bấm vào thẻ dự án: mở trình sửa dự án đó
+            if (a.dataset.project) {
+              e.preventDefault();
+              return openProject(a.dataset.project);
+            }
             const href = a.getAttribute('href') || '';
             if (href.startsWith('#')) {
               e.preventDefault();
@@ -558,8 +579,9 @@
   /* ================= Khung ứng dụng ================= */
 
   const TABS = [
-    ['videos', 'Video', 'video', 'videos'],
+    ['videos', 'Dự án', 'video', 'videos'],
     ['layout', 'Bố cục', 'layout', 'sections'],
+    ['messages', 'Tin nhắn', 'mail', 'messages'],
     ['settings', 'Cài đặt', 'settings'],
     ['files', 'Thư viện file', 'image'],
     ['account', 'Tài khoản', 'user'],
@@ -620,10 +642,13 @@
   }
 
   function switchTab(id) {
+    const wasProject = state.tab === 'videos' && state.editing;
     state.tab = id;
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('is-active', t.dataset.tab === id));
     renderMain();
     document.querySelector('.main').scrollTop = 0;
+    // Xem trước đổi giữa trang chủ và trang dự án
+    if (wasProject || (id === 'videos' && state.editing)) schedulePreview(0);
   }
 
   async function logout() {
@@ -638,7 +663,7 @@
   function renderMain() {
     const main = document.querySelector('.main');
     if (!main) return;
-    const views = { videos: viewVideos, layout: viewLayout, settings: viewSettings, files: viewFiles, account: viewAccount, backup: viewBackup };
+    const views = { videos: viewVideos, layout: viewLayout, messages: viewMessages, settings: viewSettings, files: viewFiles, account: viewAccount, backup: viewBackup };
     main.replaceChildren(views[state.tab]());
     updateDirty();
   }
@@ -646,7 +671,7 @@
   const pageHead = (title, desc, ...actions) =>
     h('div', { class: 'page-head' }, h('div', { style: { flex: 1, minWidth: '220px' } }, h('h2', {}, title), desc ? h('p', {}, desc) : null), ...actions);
 
-  /* ================= Tab: Video ================= */
+  /* ================= Tab: Dự án ================= */
 
   const PROVIDER_LABEL = { youtube: 'YouTube', vimeo: 'Vimeo', drive: 'Google Drive', tiktok: 'TikTok', facebook: 'Facebook', file: 'File video' };
 
@@ -660,12 +685,62 @@
     return [...new Set(state.content.videos.map((v) => v.category).filter(Boolean))];
   }
 
+  // Đường dẫn trang chi tiết của dự án (theo nội dung đã chuẩn hoá)
+  function projectUrl(p) {
+    const n = P.normalizeContent(state.content).videos.find((v) => v.id === p.id);
+    return n ? `${SITE}du-an/${encodeURIComponent(n.slug)}/` : SITE;
+  }
+
+  function openProject(id) {
+    state.editing = id;
+    if (state.tab !== 'videos') switchTab('videos');
+    else renderMain();
+    document.querySelector('.main').scrollTop = 0;
+    schedulePreview(0);
+  }
+
+  function closeProject() {
+    state.editing = null;
+    renderMain();
+    schedulePreview(0);
+  }
+
+  function newProject(url = '') {
+    const p = {
+      id: uid('v'), title: '', description: '', url, thumbnail: '', category: '', visible: true,
+      client: '', role: '', software: '', equipment: '', year: String(new Date().getFullYear()), summary: '',
+    };
+    state.content.videos.unshift(p);
+    changed();
+    openProject(p.id);
+    if (url) autoTitle(p);
+  }
+
+  // Tự lấy tiêu đề video từ YouTube/Vimeo… khi dự án chưa có tiêu đề
+  async function autoTitle(p, input) {
+    if (!VideoUtils.parse(p.url) || p.title) return;
+    try {
+      const r = await fetch('https://noembed.com/embed?url=' + encodeURIComponent(p.url)).then((x) => x.json());
+      if (r.title && !p.title) {
+        p.title = r.title;
+        if (input && document.contains(input)) input.value = r.title;
+        else renderMain();
+        changed();
+      }
+    } catch { /* bỏ qua */ }
+  }
+
   function viewVideos() {
     const videos = state.content.videos;
-    const quick = h('input', { class: 'input', placeholder: 'Dán link YouTube, Vimeo, Google Drive, TikTok… rồi bấm Thêm' });
+    const editing = state.editing && videos.find((v) => v.id === state.editing);
+    if (editing) return viewProjectEditor(editing);
+    state.editing = null;
+
+    const quick = h('input', { class: 'input', placeholder: 'Dán link YouTube, Vimeo, Google Drive, TikTok… để tạo dự án mới' });
     const addFromQuick = () => {
-      openVideoModal(null, quick.value.trim());
+      const url = quick.value.trim();
       quick.value = '';
+      newProject(url);
     };
     quick.addEventListener('keydown', (e) => e.key === 'Enter' && addFromQuick());
     quick.addEventListener('paste', () => setTimeout(() => quick.value.trim() && addFromQuick(), 0));
@@ -675,175 +750,177 @@
       const th = thumbFor(v);
       return h('div', { class: `video-item${v.visible ? '' : ' is-off'}`, 'data-index': i },
         gripHandle(),
-        h('div', { class: 'thumb', style: { backgroundImage: th ? `url("${th}")` : '' } }, th ? null : icon('film')),
-        h('div', { class: 'video-item__info' },
-          h('strong', {}, v.title || '(Chưa có tiêu đề)'),
-          h('div', { class: 'row row--wrap' },
-            info ? h('span', { class: `badge badge--${info.provider}` }, PROVIDER_LABEL[info.provider]) : h('span', { class: 'badge badge--bad' }, v.url ? 'Link không nhận diện' : 'Chưa có link'),
-            v.category ? h('span', { class: 'badge' }, v.category) : null)),
+        h('button', { type: 'button', class: 'video-item__open', onclick: () => openProject(v.id) },
+          h('div', { class: 'thumb', style: { backgroundImage: th ? `url("${th}")` : '' } }, th ? null : icon('film')),
+          h('div', { class: 'video-item__info' },
+            h('strong', {}, v.title || '(Chưa có tiêu đề)'),
+            h('div', { class: 'row row--wrap' },
+              info ? h('span', { class: `badge badge--${info.provider}` }, PROVIDER_LABEL[info.provider]) : h('span', { class: 'badge badge--bad' }, v.url ? 'Link không nhận diện' : 'Chưa có link'),
+              v.category ? h('span', { class: 'badge' }, v.category) : null,
+              v.role || v.client ? h('span', { class: 'badge badge--ok' }, 'Có thông tin dự án') : null))),
         h('div', { class: 'item-actions' },
           field(v, 'visible', { type: 'switch', label: h('span', { class: 'dim' }, 'Hiện'), onChange: () => setTimeout(() => renderMain(), 0) }),
-          h('button', { class: 'btn btn--ghost btn--icon', title: 'Sửa', 'aria-label': 'Sửa', onclick: () => openVideoModal(i) }, icon('edit')),
-          h('button', { class: 'btn btn--ghost btn--icon btn--danger', title: 'Xoá', 'aria-label': 'Xoá', onclick: async () => {
-            if (!(await confirmBox(`Xoá video "${v.title || 'không tên'}"?`, { ok: 'Xoá', danger: true }))) return;
-            videos.splice(i, 1);
-            changed({ rerender: true });
-          } }, icon('trash'))));
+          h('button', { class: 'btn btn--ghost btn--icon', title: 'Sửa', 'aria-label': 'Sửa', onclick: () => openProject(v.id) }, icon('edit')),
+          h('button', { class: 'btn btn--ghost btn--icon btn--danger', title: 'Xoá', 'aria-label': 'Xoá', onclick: () => deleteProject(i) }, icon('trash'))));
     }));
     makeSortable(list, videos, () => changed({ rerender: true }));
 
     return h('div', {},
-      pageHead('Video portfolio', 'Thêm link video, kéo biểu tượng ⋮⋮ để sắp xếp thứ tự hiển thị. Nhớ bấm "Lưu thay đổi".',
-        h('button', { class: 'btn btn--primary', onclick: () => openVideoModal(null, '') }, icon('plus'), 'Thêm video')),
+      pageHead('Dự án', 'Mỗi dự án có trang riêng gồm video và thông tin dự án. Bấm vào dự án để sửa, kéo ⋮⋮ để sắp xếp thứ tự trên lưới. Nhớ bấm "Lưu thay đổi".',
+        h('button', { class: 'btn btn--primary', onclick: () => newProject() }, icon('plus'), 'Thêm dự án')),
       h('div', { class: 'quick-add' }, quick, h('button', { class: 'btn btn--primary', onclick: addFromQuick }, icon('plus'), 'Thêm')),
-      videos.length ? list : h('div', { class: 'empty-state' }, 'Chưa có video nào. Dán link video ở ô phía trên để bắt đầu.'));
+      videos.length ? list : h('div', { class: 'empty-state' }, 'Chưa có dự án nào. Dán link video ở ô phía trên để bắt đầu.'));
   }
 
-  function openVideoModal(index, presetUrl) {
-    const isNew = index == null;
-    const draft = isNew
-      ? { id: uid('v'), title: '', description: '', url: presetUrl || '', thumbnail: '', category: '', visible: true }
-      : clone(state.content.videos[index]);
+  async function deleteProject(i) {
+    const v = state.content.videos[i];
+    if (!(await confirmBox(`Xoá dự án "${v.title || 'không tên'}"?`, { ok: 'Xoá', danger: true }))) return;
+    state.content.videos.splice(i, 1);
+    if (state.editing === v.id) state.editing = null;
+    changed({ rerender: true });
+  }
 
-    const box = h('div', { class: 'video-preview' });
+  // Danh sách con có kéo thả, thêm, xoá (định dạng video, ảnh hậu trường, chỉ số…)
+  function listEditor(arr, { render, create, title, addLabel, max = 20 }) {
+    const box = h('div', { class: 'sub-list' }, arr.map((it, j) =>
+      h('div', { class: 'sub-item', 'data-index': j },
+        h('div', { class: 'sub-item__head' }, gripHandle(),
+          h('strong', { style: { flex: 1, fontWeight: 500 } }, title(it, j)),
+          h('button', { class: 'btn btn--ghost btn--icon btn--danger', 'aria-label': 'Xoá', title: 'Xoá', onclick: () => { arr.splice(j, 1); changed({ rerender: true }); } }, icon('trash'))),
+        render(it, j))));
+    makeSortable(box, arr, () => changed({ rerender: true }));
+    return h('div', { class: 'stack' },
+      arr.length ? box : null,
+      arr.length < max ? h('div', {}, h('button', { class: 'btn btn--sm', onclick: () => { arr.push(create()); changed({ rerender: true }); } }, icon('plus'), addLabel)) : null);
+  }
+
+  // Ô link video + nút tải file video lên
+  function videoUrlField(obj, key, { label, hint, onChange } = {}) {
+    const input = h('input', { placeholder: 'https://www.youtube.com/watch?v=…' });
+    input.value = obj[key] || '';
     const status = h('small');
-    let titleInput;
+    const paint = () => {
+      const info = VideoUtils.parse(obj[key]);
+      status.style.color = obj[key] && !info ? 'var(--danger)' : '';
+      status.textContent = !obj[key] ? hint || ''
+        : info ? `Đã nhận diện: ${PROVIDER_LABEL[info.provider]}${info.provider === 'drive' ? ' — nhớ bật chia sẻ "Bất kỳ ai có đường liên kết"' : ''}`
+        : 'Không nhận diện được link. Hỗ trợ: YouTube, Vimeo, Google Drive, TikTok, Facebook, file .mp4.';
+    };
+    const set = (v) => {
+      obj[key] = v;
+      paint();
+      onChange && onChange(v);
+      changed();
+    };
+    input.addEventListener('input', () => set(input.value.trim()));
+    paint();
+    return h('div', { class: 'field' }, label ? h('span', {}, label) : null,
+      h('div', { class: 'row' }, input,
+        h('button', { type: 'button', class: 'btn', title: `Tải file video lên (tối đa ${MAX_FILE_MB}MB)`, onclick: async () => {
+          const f = await pickFile('video/mp4,video/webm,video/quicktime');
+          if (!f) return;
+          try {
+            const url = await uploadFile(f);
+            input.value = url;
+            set(url);
+          } catch (err) { toast(err.message, 'err'); }
+        } }, icon('upload'), h('span', { class: 'hide-sm' }, 'Tải lên'))),
+      status);
+  }
 
-    function paintPreview(play = false) {
+  const ASPECT_OPTIONS = [['auto', 'Tự động'], ['16:9', '16:9 (ngang)'], ['9:16', '9:16 (dọc, TikTok/Reels)'], ['1:1', '1:1 (vuông)'], ['4:5', '4:5 (feed dọc)'], ['21:9', '21:9 (điện ảnh)']];
+
+  function viewProjectEditor(p) {
+    const box = h('div', { class: 'video-preview' });
+    function paintVideo(play = false) {
       box.textContent = '';
-      const info = VideoUtils.parse(draft.url);
-      status.textContent = '';
-      status.style.color = '';
-      if (!draft.url) {
-        box.append(h('div', { class: 'ph' }, 'Dán link video để xem trước'));
-        return;
-      }
+      const info = VideoUtils.parse(p.url);
       if (!info) {
-        status.textContent = 'Không nhận diện được link. Hỗ trợ: YouTube, Vimeo, Google Drive, TikTok, Facebook, file .mp4. Link khác sẽ mở ở tab mới.';
-        status.style.color = 'var(--danger)';
-        box.append(h('div', { class: 'ph' }, 'Không xem trước được link này'));
+        box.append(h('div', { class: 'ph' }, p.url ? 'Không xem trước được link này' : 'Dán link video chính để xem trước'));
         return;
       }
-      status.textContent = `Đã nhận diện: ${PROVIDER_LABEL[info.provider]}` + (info.provider === 'drive' ? ' — nhớ bật chia sẻ "Bất kỳ ai có đường liên kết"' : '');
       if (play) {
         if (info.provider === 'file') box.append(h('video', { src: info.embed, controls: true, autoplay: true }));
         else box.append(h('iframe', { src: info.embed, allow: 'autoplay; fullscreen; encrypted-media', allowfullscreen: true }));
         return;
       }
-      const th = assetUrl(draft.thumbnail) || info.thumbnail;
+      const th = assetUrl(p.thumbnail) || info.thumbnail;
       box.append(h('button', {
         type: 'button', class: 'ph', style: { background: th ? `#000 url("${th}") center/cover` : '#000', border: 0, cursor: 'pointer' },
-        onclick: () => paintPreview(true),
+        onclick: () => paintVideo(true),
       }, h('span', { class: 'btn btn--primary' }, icon('play'), 'Xem thử')));
     }
+    paintVideo();
 
-    let fetchTimer;
-    async function autoTitle() {
-      const info = VideoUtils.parse(draft.url);
-      if (!info || draft.title) return;
-      try {
-        const r = await fetch('https://noembed.com/embed?url=' + encodeURIComponent(draft.url)).then((x) => x.json());
-        if (r.title && !draft.title) {
-          draft.title = r.title;
-          titleInput.value = r.title;
-        }
-      } catch { /* bỏ qua */ }
-    }
+    const title = field(p, 'title', { label: 'Tên dự án', placeholder: "Ví dụ: Biti's Hunter" });
+    const titleInput = title.querySelector('input');
+    let titleTimer;
+    const slugHint = h('small');
+    const paintSlug = () => { slugHint.textContent = `Đường dẫn: /du-an/${P.slugify(p.slug || p.title) || '…'}/ — để trống sẽ tạo từ tên dự án.`; };
+    titleInput.addEventListener('input', paintSlug);
+    paintSlug();
+    const slug = field(p, 'slug', { label: 'Đường dẫn trang (slug)', placeholder: P.slugify(p.title) || 'ten-du-an', onChange: paintSlug });
+    slug.append(slugHint);
 
-    // Các trường của modal ghi vào draft, không đánh dấu "chưa lưu" cho đến khi bấm Xong
-    const bind = (key, el) => {
-      el.value = draft[key] || '';
-      el.addEventListener('input', () => {
-        draft[key] = el.value;
-        if (key === 'url') {
-          paintPreview();
-          clearTimeout(fetchTimer);
-          fetchTimer = setTimeout(autoTitle, 500);
-        }
-        if (key === 'thumbnail') paintPreview();
-      });
-      return el;
-    };
+    const i = state.content.videos.indexOf(p);
+    return h('div', {},
+      h('div', { class: 'page-head' },
+        h('button', { class: 'btn btn--ghost', onclick: closeProject }, icon('back'), 'Tất cả dự án'),
+        h('span', { class: 'spacer' }),
+        h('a', { class: 'btn btn--ghost', href: projectUrl(p), target: '_blank', rel: 'noopener', title: 'Mở trang dự án đã lưu' }, icon('external'), h('span', { class: 'hide-sm' }, 'Mở trang')),
+        h('button', { class: 'btn btn--danger', onclick: () => deleteProject(i) }, icon('trash'), h('span', { class: 'hide-sm' }, 'Xoá dự án'))),
+      h('h2', { style: { marginBottom: '16px' } }, p.title || 'Dự án mới'),
 
-    const urlInput = bind('url', h('input', { placeholder: 'https://www.youtube.com/watch?v=…' }));
-    titleInput = bind('title', h('input', { placeholder: 'Ví dụ: Wedding Film — Minh & Lan' }));
-    const catList = h('datalist', { id: 'cat-list' }, categories().map((c) => h('option', { value: c })));
+      h('div', { class: 'panel stack' }, h('h3', {}, 'Video chính'),
+        videoUrlField(p, 'url', {
+          hint: `Dán link YouTube/Vimeo/Drive… hoặc tải file video lên (tối đa ${MAX_FILE_MB}MB).`,
+          onChange: () => { paintVideo(); clearTimeout(titleTimer); titleTimer = setTimeout(() => autoTitle(p, titleInput), 500); },
+        }),
+        box),
 
-    // Ô thumbnail riêng dùng imageField nhưng ghi vào draft
-    const thumbObj = { get thumbnail() { return draft.thumbnail; }, set thumbnail(v) { draft.thumbnail = v; paintPreview(); } };
-    const thumbField = imageField(thumbObj, 'thumbnail', { label: 'Ảnh bìa riêng (không bắt buộc)', hint: 'Để trống sẽ tự lấy ảnh bìa từ YouTube / Vimeo / Drive.' });
+      h('div', { class: 'panel stack' }, h('h3', {}, 'Thẻ trên lưới dự án'),
+        title,
+        h('div', { class: 'grid-2' },
+          field(p, 'description', { label: 'Dòng phụ dưới tên', placeholder: 'Ví dụ: Lead Editor, Colorist' }),
+          h('label', { class: 'field' }, h('span', {}, 'Danh mục (dùng để lọc)'),
+            (() => {
+              const inp = h('input', { list: 'cat-list', placeholder: 'Ví dụ: TVC / Commercial, Music video' });
+              inp.value = p.category || '';
+              inp.addEventListener('input', () => { p.category = inp.value; changed(); });
+              return inp;
+            })(),
+            h('datalist', { id: 'cat-list' }, categories().map((c) => h('option', { value: c }))))),
+        imageField(p, 'thumbnail', { label: 'Ảnh bìa riêng (không bắt buộc)', hint: 'Để trống sẽ tự lấy ảnh bìa từ YouTube / Vimeo / Drive.' }),
+        h('div', { class: 'grid-2' }, slug,
+          h('div', { class: 'field' }, h('span', {}, 'Hiển thị'), field(p, 'visible', { type: 'switch', label: 'Hiện trên trang' })))),
 
-    const body = h('div', { class: 'stack' },
-      h('div', { class: 'field' }, h('span', {}, 'Link video *'),
-        h('div', { class: 'row' }, urlInput,
-          h('button', { type: 'button', class: 'btn', title: `Tải file video lên (tối đa ${MAX_FILE_MB}MB)`, onclick: async () => {
-            const f = await pickFile('video/mp4,video/webm,video/quicktime');
-            if (!f) return;
-            try {
-              const url = await uploadFile(f);
-              draft.url = url;
-              urlInput.value = url;
-              if (!draft.title) { draft.title = f.name.replace(/\.[^.]+$/, ''); titleInput.value = draft.title; }
-              paintPreview();
-            } catch (err) { toast(err.message, 'err'); }
-          } }, icon('upload'), 'Tải video lên')),
-        status, h('small', {}, `Dán link YouTube/Vimeo/Drive… hoặc tải file video lên (tối đa ${MAX_FILE_MB}MB).`)),
-      box,
-      h('label', { class: 'field' }, h('span', {}, 'Tiêu đề'), titleInput),
-      h('label', { class: 'field' }, h('span', {}, 'Mô tả ngắn'), bind('description', h('input', { placeholder: 'Hiện bên dưới tiêu đề' }))),
-      h('div', { class: 'grid-2' },
-        h('label', { class: 'field' }, h('span', {}, 'Danh mục'), bind('category', h('input', { list: 'cat-list', placeholder: 'Ví dụ: Wedding, TVC, Sự kiện' })), catList, h('small', {}, 'Dùng để lọc video trên trang.')),
-        h('div', { class: 'field' }, h('span', {}, 'Hiển thị'), (() => {
-          const cb = h('input', { type: 'checkbox', checked: draft.visible, onchange: (e) => (draft.visible = e.target.checked) });
-          return h('label', { class: 'switch', style: { height: '38px' } }, cb, h('i'), 'Hiện trên trang');
-        })())),
-      thumbField);
-
-    paintPreview();
-    if (presetUrl) autoTitle();
-
-    modal({
-      title: isNew ? 'Thêm video' : 'Sửa video',
-      body,
-      foot: (close) => [
-        h('button', { class: 'btn', onclick: close }, 'Huỷ'),
-        h('button', { class: 'btn btn--primary', onclick: () => {
-          if (!draft.url.trim()) {
-            toast('Vui lòng nhập link video', 'err');
-            urlInput.focus();
-            return;
-          }
-          draft.url = draft.url.trim();
-          draft.category = (draft.category || '').trim();
-          // Ghi vào changed() phải chạy sau khi gán vì imageField gọi changed() riêng
-          if (isNew) state.content.videos.unshift(draft);
-          else state.content.videos[index] = draft;
-          close();
-          changed({ rerender: true });
-          toast(isNew ? 'Đã thêm video — bấm "Lưu thay đổi" để đăng lên trang' : 'Đã cập nhật video');
-        } }, isNew ? 'Thêm video' : 'Xong'),
-      ],
-    });
+      h('div', { class: 'panel stack' }, h('h3', {}, 'Thông tin dự án'),
+        h('div', { class: 'grid-2' },
+          field(p, 'client', { label: 'Khách hàng', placeholder: "Ví dụ: Biti's" }),
+          field(p, 'role', { label: 'Vai trò', placeholder: 'Ví dụ: Lead Editor, Colorist' }),
+          field(p, 'software', { label: 'Phần mềm', placeholder: 'Ví dụ: DaVinci Resolve, Premiere Pro' }),
+          field(p, 'equipment', { label: 'Thiết bị', placeholder: 'Ví dụ: Sony FX6' })),
+        field(p, 'year', { label: 'Năm' }),
+        field(p, 'summary', { type: 'textarea', label: 'Mô tả dự án', rows: 4, placeholder: 'Brief, ý tưởng, cách xử lý dựng & màu…' }),
+        h('small', { class: 'dim' }, 'Mục nào để trống sẽ không hiện trên trang.')));
   }
 
   /* ================= Tab: Bố cục ================= */
 
   const SECTION_INFO = {
-    hero: { label: 'Banner đầu trang', desc: 'Tiêu đề lớn, nút và ảnh chính' },
-    services: { label: 'Dịch vụ', desc: 'Hàng biểu tượng dịch vụ' },
-    about: { label: 'Ảnh + nội dung', desc: 'Giới thiệu, câu chuyện…' },
-    portfolio: { label: 'Lưới video', desc: 'Hiển thị video portfolio' },
-    reviews: { label: 'Đánh giá khách hàng', desc: 'Avatar bay + thẻ đánh giá' },
-    contact: { label: 'Liên hệ', desc: 'Email, điện thoại, mạng xã hội' },
+    showreel: { label: 'Showreel (đầu trang)', desc: 'Khung video lớn với tiêu đề và nút ▶' },
+    profile: { label: 'Giới thiệu & chỉ số', desc: 'Ảnh chân dung, liên hệ nhanh, số năm kinh nghiệm…' },
+    portfolio: { label: 'Lưới dự án', desc: 'Bộ lọc danh mục + danh sách dự án' },
+    bts: { label: 'Behind the scenes', desc: 'Timeline, so sánh màu trước/sau, đa định dạng, ảnh hậu trường' },
+    contact: { label: 'Liên hệ & hợp tác', desc: 'Form gửi tin nhắn, địa chỉ, email, điện thoại' },
   };
 
   const NEW_SECTION = {
-    hero: () => ({ titleLines: ['Tiêu đề', 'của bạn'], buttonText: 'Xem thêm', buttonLink: '#', showreelUrl: '', image: '', imagePosition: 'right' }),
-    services: () => ({ intro: '', items: [{ icon: 'film', title: 'Dựng phim' }, { icon: 'camera', title: 'Quay phim' }] }),
-    about: () => ({ eyebrow: 'Tiêu đề nhỏ', title: 'Tiêu đề khối', text: 'Nội dung…', buttonText: '', buttonLink: '', image: '', imagePosition: 'left' }),
-    portfolio: () => ({ eyebrow: '', title: 'Video', columns: 3, aspect: '16:9', showFilter: false, category: '', limit: 0 }),
-    reviews: () => ({ title: 'Khách hàng nói gì', rating: 5, items: [] }),
-    contact: () => ({ eyebrow: '', title: 'Liên hệ', text: '', buttonText: 'Gửi email' }),
+    showreel: () => ({ title: `SHOWREEL ${new Date().getFullYear()}`, subtitle: 'Crafting cinematic stories', videoUrl: '', image: '' }),
+    profile: () => ({ image: '', title: 'Xin chào', text: 'Giới thiệu ngắn…', buttonText: 'Liên hệ ngay', buttonLink: '#contact', showContact: true, showSocials: true, stats: [{ value: '5+', label: 'Năm kinh nghiệm' }] }),
+    portfolio: () => ({ title: 'Dự án', columns: 3, aspect: '16:10', showFilter: true, category: '', limit: 0 }),
+    bts: () => ({ title: 'Behind the scenes', subtitle: 'Hậu trường kỹ thuật', timelineImage: '', beforeImage: '', afterImage: '', beforeLabel: 'LOG', afterLabel: 'Color grade', formats: [], bts: [] }),
+    contact: () => ({ title: 'Liên hệ & hợp tác', text: '', showForm: true, buttonText: 'Gửi tin nhắn' }),
   };
 
   const linkHint = () => `Dùng #id để cuộn tới một khối, ví dụ ${state.content.sections.map((s) => '#' + s.id).slice(0, 3).join(', ')}`;
@@ -857,7 +934,7 @@
       Object.entries(SECTION_INFO).map(([t, inf]) => h('option', { value: t }, inf.label)));
 
     return h('div', {},
-      pageHead('Bố cục trang', 'Kéo ⋮⋮ để đổi thứ tự khối, bật/tắt để ẩn hiện, bấm vào khối để sửa nội dung. Có thể thêm nhiều khối cùng loại.'),
+      pageHead('Bố cục trang chủ', 'Kéo ⋮⋮ để đổi thứ tự khối, bật/tắt để ẩn hiện, bấm vào khối để sửa nội dung.'),
       list,
       h('div', { class: 'quick-add', style: { marginTop: '16px', alignItems: 'center' } },
         h('span', { class: 'muted' }, 'Thêm khối mới:'), typeSelect,
@@ -921,83 +998,103 @@
   }
 
   function sectionTitle(sec) {
-    const d = sec.data;
-    if (sec.type === 'hero') return (d.titleLines || []).join(' ') || 'Banner';
-    return d.title || SECTION_INFO[sec.type].label;
+    return sec.data.title || SECTION_INFO[sec.type].label;
   }
 
   function sectionEditor(sec) {
     const d = sec.data;
     switch (sec.type) {
-      case 'hero':
+      case 'showreel':
         return h('div', { class: 'stack' },
-          field(d, 'titleLines', { type: 'lines', label: 'Tiêu đề (mỗi dòng một hàng)', rows: 3 }),
           h('div', { class: 'grid-2' },
-            field(d, 'buttonText', { label: 'Chữ trên nút' }),
+            field(d, 'title', { label: 'Tiêu đề lớn', placeholder: 'SHOWREEL 2026' }),
+            field(d, 'subtitle', { label: 'Dòng phụ', placeholder: 'Crafting cinematic stories' })),
+          videoUrlField(d, 'videoUrl', { label: 'Video showreel (nút ▶)', hint: 'Video tải lên (.mp4) sẽ tự chạy nền không tiếng; link YouTube/Vimeo phát khi bấm ▶. Để trống để ẩn nút.' }),
+          imageField(d, 'image', { label: 'Ảnh nền', hint: 'Ảnh ngang, tối thiểu 1600px. Nên chọn ảnh tối để chữ nổi bật.' }));
+
+      case 'profile':
+        return h('div', { class: 'stack' },
+          imageField(d, 'image', { label: 'Ảnh chân dung', hint: 'Ảnh dọc hoặc vuông. Để trống để ẩn.' }),
+          field(d, 'title', { label: 'Tiêu đề', placeholder: 'Ví dụ: Xin chào, mình là Thanh Hải' }),
+          field(d, 'text', { type: 'textarea', label: 'Giới thiệu', rows: 4 }),
+          h('div', { class: 'grid-2' },
+            field(d, 'buttonText', { label: 'Chữ trên nút', placeholder: 'Để trống để ẩn nút' }),
             field(d, 'buttonLink', { label: 'Link nút', hint: linkHint() })),
-          field(d, 'showreelUrl', { label: 'Video showreel (nút ▶)', placeholder: 'Link YouTube/Vimeo…, để trống để ẩn nút' }),
-          imageField(d, 'image', { label: 'Ảnh chính', hint: 'Nên dùng ảnh ngang, tối thiểu 1200px.' }),
-          field(d, 'imagePosition', { type: 'select', label: 'Vị trí ảnh', options: [['right', 'Bên phải'], ['left', 'Bên trái']] }));
-
-      case 'services': {
-        const items = h('div', { class: 'sub-list' }, d.items.map((it, j) =>
-          h('div', { class: 'sub-item', 'data-index': j },
-            h('div', { class: 'sub-item__head' }, gripHandle(), h('div', { style: { flex: 1 } }, field(it, 'title', { placeholder: 'Tên dịch vụ' })),
-              h('button', { class: 'btn btn--ghost btn--icon btn--danger', 'aria-label': 'Xoá', onclick: () => { d.items.splice(j, 1); changed({ rerender: true }); } }, icon('trash'))),
-            h('div', { class: 'icon-pick' }, Object.entries(state.meta.icons).map(([name, svg]) =>
-              h('button', { type: 'button', title: name, class: it.icon === name ? 'is-active' : '', html: svg, onclick: () => { it.icon = name; changed({ rerender: true }); } }))))));
-        makeSortable(items, d.items, () => changed({ rerender: true }));
-        return h('div', { class: 'stack' },
-          field(d, 'intro', { type: 'textarea', label: 'Đoạn giới thiệu bên trái', rows: 3, hint: 'Mỗi dòng một hàng. Để trống để ẩn.' }),
-          h('div', { class: 'field' }, h('span', {}, 'Danh sách dịch vụ'), items),
-          h('div', {}, h('button', { class: 'btn btn--sm', onclick: () => { d.items.push({ icon: 'sparkles', title: 'Dịch vụ mới' }); changed({ rerender: true }); } }, icon('plus'), 'Thêm dịch vụ')));
-      }
-
-      case 'about':
-        return h('div', { class: 'stack' },
-          h('div', { class: 'grid-2' }, field(d, 'eyebrow', { label: 'Tiêu đề nhỏ' }), field(d, 'title', { label: 'Tiêu đề lớn' })),
-          field(d, 'text', { type: 'textarea', label: 'Nội dung', rows: 5 }),
-          h('div', { class: 'grid-2' }, field(d, 'buttonText', { label: 'Chữ trên nút', placeholder: 'Để trống để ẩn nút' }), field(d, 'buttonLink', { label: 'Link nút', hint: linkHint() })),
-          imageField(d, 'image', { label: 'Ảnh' }),
-          field(d, 'imagePosition', { type: 'select', label: 'Vị trí ảnh', options: [['left', 'Bên trái'], ['right', 'Bên phải']] }));
+          field(d, 'showContact', { type: 'switch', label: 'Hiện số điện thoại & email (sửa ở tab Cài đặt)' }),
+          field(d, 'showSocials', { type: 'switch', label: 'Hiện biểu tượng mạng xã hội' }),
+          h('div', { class: 'field' }, h('span', {}, 'Chỉ số (tối đa 4)'),
+            listEditor(d.stats, {
+              title: (it) => [it.value, it.label].filter(Boolean).join(' ') || 'Chỉ số',
+              create: () => ({ value: '', label: '' }),
+              addLabel: 'Thêm chỉ số',
+              max: 4,
+              render: (it) => h('div', { class: 'grid-2' },
+                field(it, 'value', { label: 'Số', placeholder: '120+' }),
+                field(it, 'label', { label: 'Mô tả', placeholder: 'Dự án hoàn thiện' })),
+            })));
 
       case 'portfolio':
         return h('div', { class: 'stack' },
-          h('div', { class: 'grid-2' }, field(d, 'eyebrow', { label: 'Tiêu đề nhỏ' }), field(d, 'title', { label: 'Tiêu đề lớn' })),
+          field(d, 'title', { label: 'Tiêu đề', placeholder: 'Để trống để ẩn' }),
           h('div', { class: 'grid-3' },
             field(d, 'columns', { type: 'select', number: true, label: 'Số cột', options: [[1, '1 cột'], [2, '2 cột'], [3, '3 cột'], [4, '4 cột']] }),
-            field(d, 'aspect', { type: 'select', label: 'Tỉ lệ khung', options: [['16:9', '16:9 (ngang)'], ['4:3', '4:3'], ['1:1', '1:1 (vuông)'], ['9:16', '9:16 (dọc, Reels/TikTok)']] }),
-            field(d, 'limit', { type: 'number', label: 'Số video tối đa', min: 0, max: 200, hint: '0 = hiện tất cả' })),
+            field(d, 'aspect', { type: 'select', label: 'Tỉ lệ ảnh', options: [['16:10', '16:10'], ['16:9', '16:9 (ngang)'], ['4:3', '4:3'], ['1:1', '1:1 (vuông)'], ['9:16', '9:16 (dọc)']] }),
+            field(d, 'limit', { type: 'number', label: 'Số dự án tối đa', min: 0, max: 200, hint: '0 = hiện tất cả' })),
           field(d, 'category', { type: 'select', label: 'Chỉ hiện danh mục', options: [['', 'Tất cả danh mục'], ...categories()] }),
           field(d, 'showFilter', { type: 'switch', label: 'Hiện nút lọc theo danh mục' }),
-          h('p', { class: 'dim', style: { margin: 0 } }, 'Video được quản lý ở tab ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); switchTab('videos'); } }, 'Video'), '.'));
+          h('p', { class: 'dim', style: { margin: 0 } }, 'Dự án được quản lý ở tab ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); switchTab('videos'); } }, 'Dự án'), '.'));
 
-      case 'reviews': {
-        const items = h('div', { class: 'sub-list' }, d.items.map((it, j) =>
-          h('div', { class: 'sub-item', 'data-index': j },
-            h('div', { class: 'sub-item__head' }, gripHandle(), h('strong', { style: { flex: 1, fontWeight: 500 } }, it.name || 'Khách hàng'),
-              h('button', { class: 'btn btn--ghost btn--icon btn--danger', 'aria-label': 'Xoá', onclick: () => { d.items.splice(j, 1); changed({ rerender: true }); } }, icon('trash'))),
-            h('div', { class: 'grid-3' },
-              field(it, 'name', { label: 'Tên' }),
-              field(it, 'role', { label: 'Chức danh' }),
-              field(it, 'rating', { type: 'select', number: true, label: 'Số sao', options: [5, 4, 3, 2, 1].map((n) => [n, '★'.repeat(n)]) })),
-            field(it, 'text', { type: 'textarea', label: 'Nội dung đánh giá', rows: 2 }),
-            imageField(it, 'avatar', { label: 'Ảnh đại diện' }))));
-        makeSortable(items, d.items, () => changed({ rerender: true }));
+      case 'bts':
         return h('div', { class: 'stack' },
           h('div', { class: 'grid-2' },
-            field(d, 'title', { label: 'Tiêu đề' }),
-            field(d, 'rating', { type: 'select', number: true, label: 'Số sao dưới tiêu đề', options: [[5, '★★★★★'], [4, '★★★★'], [0, 'Ẩn']] })),
-          h('div', { class: 'field' }, h('span', {}, 'Đánh giá'), items),
-          h('div', {}, h('button', { class: 'btn btn--sm', onclick: () => { d.items.push({ name: '', role: '', avatar: '', text: '', rating: 5 }); changed({ rerender: true }); } }, icon('plus'), 'Thêm đánh giá')));
-      }
+            field(d, 'title', { label: 'Tiêu đề', placeholder: 'Behind the scenes' }),
+            field(d, 'subtitle', { label: 'Tiêu đề phụ', placeholder: 'Hậu trường kỹ thuật' })),
+          h('div', { class: 'field' }, h('span', {}, 'Timeline & chỉnh màu'),
+            h('div', { class: 'sub-item stack' },
+              imageField(d, 'timelineImage', { label: 'Ảnh chụp timeline dựng phim', hint: 'Chụp màn hình timeline Premiere/Resolve.' }),
+              h('div', { class: 'grid-2' },
+                imageField(d, 'beforeImage', { label: 'Ảnh trước khi chỉnh màu' }),
+                imageField(d, 'afterImage', { label: 'Ảnh sau khi chỉnh màu' }),
+                field(d, 'beforeLabel', { label: 'Nhãn ảnh trước', placeholder: 'LOG' }),
+                field(d, 'afterLabel', { label: 'Nhãn ảnh sau', placeholder: 'Color grade' })),
+              h('small', { class: 'dim' }, 'Cần cả 2 ảnh (cùng khung hình) thì thanh kéo so sánh mới hiện.'))),
+          h('div', { class: 'field' }, h('span', {}, 'Đa định dạng (ngang & dọc)'),
+            h('small', {}, 'Các phiên bản 16:9, 9:16, 1:1… Mỗi mục là một link video hoặc một ảnh.'),
+            listEditor(d.formats, {
+              title: (it, j) => it.label || `Định dạng ${j + 1}`,
+              create: () => ({ url: '', image: '', label: '', aspect: 'auto' }),
+              addLabel: 'Thêm định dạng',
+              max: 8,
+              render: (it) => h('div', { class: 'stack' },
+                h('div', { class: 'grid-2' },
+                  field(it, 'label', { label: 'Nhãn', placeholder: 'Ví dụ: Bản 9:16 (TikTok/Reels)' }),
+                  field(it, 'aspect', { type: 'select', label: 'Tỉ lệ khung', options: ASPECT_OPTIONS })),
+                videoUrlField(it, 'url', { label: 'Link video (không bắt buộc)' }),
+                imageField(it, 'image', { label: 'Ảnh (dùng khi không có video, hoặc làm ảnh bìa)' })),
+            })),
+          h('div', { class: 'field' }, h('span', {}, 'Ảnh hậu trường & breakdown'),
+            h('small', {}, 'Ảnh on-set, BTS, VFX/sound breakdown… Các ảnh liền nhau cùng nhóm sẽ có chung một tiêu đề.'),
+            h('datalist', { id: 'bts-groups' }, ['Cảnh quay on-set & BTS', 'VFX & sound breakdown', ...new Set(d.bts.map((b) => b.group).filter(Boolean))].map((g) => h('option', { value: g }))),
+            listEditor(d.bts, {
+              title: (it, j) => it.caption || `Ảnh ${j + 1}`,
+              create: () => ({ group: (d.bts[d.bts.length - 1] || {}).group || 'Cảnh quay on-set & BTS', image: '', caption: '', url: '' }),
+              addLabel: 'Thêm ảnh',
+              max: 12,
+              render: (it) => h('div', { class: 'stack' },
+                h('div', { class: 'grid-2' },
+                  field(it, 'group', { label: 'Nhóm', list: 'bts-groups' }),
+                  field(it, 'caption', { label: 'Chú thích' })),
+                imageField(it, 'image', { label: 'Ảnh' }),
+                videoUrlField(it, 'url', { label: 'Link video (không bắt buộc)', hint: 'Có link thì bấm vào ảnh sẽ phát video.' })),
+            })));
 
       case 'contact':
         return h('div', { class: 'stack' },
-          h('div', { class: 'grid-2' }, field(d, 'eyebrow', { label: 'Tiêu đề nhỏ' }), field(d, 'title', { label: 'Tiêu đề lớn' })),
+          field(d, 'title', { label: 'Tiêu đề' }),
           field(d, 'text', { type: 'textarea', label: 'Nội dung', rows: 2 }),
-          field(d, 'buttonText', { label: 'Chữ trên nút email', placeholder: 'Để trống để ẩn' }),
-          h('p', { class: 'dim', style: { margin: 0 } }, 'Email, số điện thoại, mạng xã hội sửa ở tab ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); switchTab('settings'); } }, 'Cài đặt'), '.'));
+          field(d, 'showForm', { type: 'switch', label: 'Hiện form gửi tin nhắn (tin nhắn xem ở tab Tin nhắn)' }),
+          field(d, 'buttonText', { label: 'Chữ trên nút gửi', placeholder: 'Gửi tin nhắn' }),
+          h('p', { class: 'dim', style: { margin: 0 } }, 'Địa chỉ, email, số điện thoại, mạng xã hội sửa ở tab ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); switchTab('settings'); } }, 'Cài đặt'), '.'));
     }
     return h('div');
   }
@@ -1023,13 +1120,14 @@
           field(s, 'lightBackgroundColor', { type: 'color', label: 'Màu nền giao diện sáng' }))),
       h('div', { class: 'panel stack' }, h('h3', {}, 'Màu nhấn & font chữ'),
         h('div', { class: 'grid-2' },
-          field(s, 'accentColor', { type: 'color', label: 'Màu nhấn (nút, sao…)' }),
+          field(s, 'accentColor', { type: 'color', label: 'Màu nhấn (nút, chỉ số, bộ lọc…)' }),
           field(s, 'headingFont', { type: 'select', label: 'Font tiêu đề', options: state.meta.fonts }))),
       h('div', { class: 'panel stack' }, h('h3', {}, 'Nút trên menu'),
         h('div', { class: 'grid-2' },
           field(s, 'contactButtonText', { label: 'Chữ trên nút', placeholder: 'Để trống để ẩn' }),
           field(s, 'contactButtonLink', { label: 'Link', hint: 'Ví dụ #contact, https://zalo.me/…, tel:0900…' }))),
       h('div', { class: 'panel stack' }, h('h3', {}, 'Thông tin liên hệ'),
+        h('p', { class: 'dim', style: { margin: '-8px 0 0' } }, 'Hiện ở khối Giới thiệu và khối Liên hệ.'),
         h('div', { class: 'grid-3' },
           field(s, 'email', { label: 'Email', type: 'email' }),
           field(s, 'phone', { label: 'Số điện thoại' }),
@@ -1041,6 +1139,9 @@
           field(s.socials, 'youtube', { label: 'YouTube' }),
           field(s.socials, 'instagram', { label: 'Instagram' }),
           field(s.socials, 'tiktok', { label: 'TikTok' }),
+          field(s.socials, 'behance', { label: 'Behance' }),
+          field(s.socials, 'linkedin', { label: 'LinkedIn' }),
+          field(s.socials, 'x', { label: 'X (Twitter)' }),
           field(s.socials, 'zalo', { label: 'Zalo', placeholder: 'https://zalo.me/0900000000' }))),
       h('div', { class: 'panel stack' }, h('h3', {}, 'SEO & chia sẻ'),
         field(s, 'metaTitle', { label: 'Tiêu đề trang (hiện trên Google & tab trình duyệt)' }),
@@ -1102,6 +1203,68 @@
     return h('div', {},
       pageHead('Thư viện file', 'Ảnh và video lưu trên Supabase Storage, hiển thị trên web ngay sau khi tải lên.'),
       zone, wrap);
+  }
+
+  /* ================= Tab: Tin nhắn ================= */
+
+  // Đếm tin nhắn chưa đọc (hiện trên tab)
+  async function loadUnread() {
+    try {
+      const { count, error } = await sb.from('contact_messages').select('id', { count: 'exact', head: true }).eq('is_read', false);
+      if (error) return;
+      state.unread = count || 0;
+      updateDirty();
+    } catch { /* bỏ qua */ }
+  }
+
+  function viewMessages() {
+    const box = h('div', {}, h('p', { class: 'muted' }, 'Đang tải…'));
+
+    async function load() {
+      try {
+        const rows = must(await sb.from('contact_messages').select('*').order('id', { ascending: false }).limit(200));
+        state.unread = rows.filter((r) => !r.is_read).length;
+        updateDirty();
+        box.replaceChildren(rows.length
+          ? h('div', { class: 'msg-list' }, rows.map(message))
+          : h('div', { class: 'empty-state' }, 'Chưa có tin nhắn nào. Tin nhắn khách gửi từ form liên hệ trên web sẽ hiện ở đây.'));
+      } catch (err) {
+        box.replaceChildren(h('p', { class: 'error' }, err.message));
+      }
+    }
+
+    async function update(r, patch) {
+      try {
+        must(await sb.from('contact_messages').update(patch).eq('id', r.id));
+        load();
+      } catch (err) { toast(err.message, 'err'); }
+    }
+
+    function message(r) {
+      const subject = `Re: Liên hệ từ website${r.project ? ` — ${r.project}` : ''}`;
+      return h('div', { class: `msg${r.is_read ? '' : ' is-new'}` },
+        h('div', { class: 'msg__head' },
+          h('strong', {}, r.name),
+          h('a', { href: `mailto:${r.email}` }, r.email),
+          r.project ? h('span', { class: 'badge' }, r.project) : null,
+          h('span', { class: 'spacer' }),
+          h('span', { class: 'dim' }, new Date(r.created_at).toLocaleString('vi-VN'))),
+        h('p', { class: 'msg__body' }, r.message),
+        h('div', { class: 'row row--wrap' },
+          h('a', { class: 'btn btn--sm', href: `mailto:${r.email}?subject=${encodeURIComponent(subject)}`, onclick: () => !r.is_read && update(r, { is_read: true }) }, icon('reply'), 'Trả lời qua email'),
+          h('button', { class: 'btn btn--sm btn--ghost', onclick: () => update(r, { is_read: !r.is_read }) }, icon('check'), r.is_read ? 'Đánh dấu chưa đọc' : 'Đánh dấu đã đọc'),
+          h('span', { class: 'spacer' }),
+          h('button', { class: 'btn btn--sm btn--ghost btn--danger', onclick: async () => {
+            if (!(await confirmBox(`Xoá tin nhắn của ${r.name}?`, { ok: 'Xoá', danger: true }))) return;
+            try { must(await sb.from('contact_messages').delete().eq('id', r.id)); toast('Đã xoá'); load(); } catch (err) { toast(err.message, 'err'); }
+          } }, icon('trash'), 'Xoá')));
+    }
+
+    load();
+    return h('div', {},
+      pageHead('Tin nhắn liên hệ', 'Tin nhắn khách gửi từ form "Liên hệ & hợp tác" trên trang web.',
+        h('button', { class: 'btn', onclick: load }, 'Tải lại')),
+      box);
   }
 
   /* ================= Tab: Tài khoản ================= */
@@ -1188,12 +1351,10 @@
   /* ================= Khởi động ================= */
 
   async function boot() {
-    state.meta = {
-      fonts: P.FONTS,
-      icons: Object.fromEntries(P.ICONS.map((n) => [n, P.icon(n, 22)])),
-    };
+    state.meta = { fonts: P.FONTS };
     setContent(await loadContent());
     render();
+    loadUnread();
   }
 
   function render() {

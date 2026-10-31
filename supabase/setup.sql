@@ -127,22 +127,23 @@ create policy "Admin xoá file portfolio" on storage.objects
 -- 6. Nội dung ban đầu (chỉ thêm khi bảng còn trống)
 insert into public.site_content (id, content, updated_by)
 values (1, $seed${
+  "version": 3,
   "settings": {
     "siteName": "Thanh Hải Video",
-    "logoText": "THANHHAI",
-    "logoSub": "STUDIO",
+    "logoText": "THANH HẢI",
+    "logoSub": "Video Editor",
     "logoImage": "",
     "favicon": "",
-    "metaTitle": "Thanh Hải Video — Video Editor & Videographer",
-    "metaDescription": "Dựng phim, quay phim sự kiện, TVC, video thương hiệu và nội dung mạng xã hội.",
+    "metaTitle": "Thanh Hải — Video Editor & Colorist",
+    "metaDescription": "Dựng phim, chỉnh màu, TVC, MV ca nhạc, phim ngắn và nội dung mạng xã hội.",
     "ogImage": "",
     "theme": "dark",
     "themeToggle": true,
-    "accentColor": "#ff9f1c",
-    "backgroundColor": "#07070b",
-    "lightBackgroundColor": "#f6f5f2",
-    "headingFont": "Montserrat",
-    "contactButtonText": "Liên hệ",
+    "accentColor": "#1fb5a3",
+    "backgroundColor": "#0e1012",
+    "lightBackgroundColor": "#f4f5f4",
+    "headingFont": "Oswald",
+    "contactButtonText": "",
     "contactButtonLink": "#contact",
     "email": "hello@example.com",
     "phone": "0900 000 000",
@@ -152,136 +153,116 @@ values (1, $seed${
       "youtube": "https://youtube.com/",
       "instagram": "",
       "tiktok": "",
+      "behance": "",
+      "linkedin": "",
+      "x": "",
       "zalo": ""
     },
     "footerText": "© {year} Thanh Hải Video. All rights reserved."
   },
   "sections": [
     {
-      "id": "hero",
-      "type": "hero",
+      "id": "showreel",
+      "type": "showreel",
       "enabled": true,
       "navLabel": "Trang chủ",
       "data": {
-        "titleLines": [
-          "Next Level",
-          "Amazing",
-          "Videographer"
-        ],
-        "buttonText": "Xem thêm",
-        "buttonLink": "#portfolio",
-        "showreelUrl": "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
-        "image": "https://images.unsplash.com/photo-1601506521937-0121a7fc2a6b?w=1400&q=80&auto=format&fit=crop",
-        "imagePosition": "right"
-      }
-    },
-    {
-      "id": "services",
-      "type": "services",
-      "enabled": true,
-      "navLabel": "",
-      "data": {
-        "intro": "Supporting Digital Business\nBranding Agencies\nPrivate Documentaries",
-        "items": [
-          {
-            "icon": "film",
-            "title": "Video Editing"
-          },
-          {
-            "icon": "users",
-            "title": "Cameraman"
-          },
-          {
-            "icon": "camera",
-            "title": "Videography"
-          },
-          {
-            "icon": "tag",
-            "title": "Branding"
-          }
-        ]
+        "title": "SHOWREEL 2026",
+        "subtitle": "Crafting cinematic stories",
+        "videoUrl": "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+        "image": "https://images.unsplash.com/photo-1601506521937-0121a7fc2a6b?w=1800&q=80&auto=format&fit=crop"
       }
     },
     {
       "id": "about",
-      "type": "about",
+      "type": "profile",
       "enabled": true,
       "navLabel": "Giới thiệu",
       "data": {
-        "eyebrow": "Về chúng tôi",
-        "title": "We Always Make The Best",
-        "text": "Hơn 5 năm kinh nghiệm dựng phim và quay phim cho thương hiệu, sự kiện và nhà sáng tạo nội dung. Mỗi khung hình đều được chăm chút để kể câu chuyện của bạn một cách cuốn hút nhất.",
+        "image": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=700&q=80&auto=format&fit=crop",
+        "title": "Xin chào, mình là Thanh Hải",
+        "text": "Video editor & colorist với hơn 5 năm dựng TVC, MV ca nhạc và phim ngắn. Mình tập trung vào nhịp dựng, màu sắc và âm thanh để mỗi khung hình kể đúng câu chuyện của thương hiệu.",
         "buttonText": "Liên hệ ngay",
         "buttonLink": "#contact",
-        "image": "https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=1000&q=80&auto=format&fit=crop",
-        "imagePosition": "left"
+        "showContact": true,
+        "showSocials": true,
+        "stats": [
+          {
+            "value": "5+",
+            "label": "Năm kinh nghiệm"
+          },
+          {
+            "value": "120+",
+            "label": "Dự án hoàn thiện"
+          }
+        ]
       }
     },
     {
       "id": "portfolio",
       "type": "portfolio",
       "enabled": true,
-      "navLabel": "Portfolio",
+      "navLabel": "Dự án",
       "data": {
-        "eyebrow": "Our Portfolio",
-        "title": "Latest Work",
+        "title": "Lưới dự án (Projects)",
         "columns": 3,
-        "aspect": "4:3",
+        "aspect": "16:10",
         "showFilter": true,
         "category": "",
         "limit": 0
       }
     },
     {
-      "id": "reviews",
-      "type": "reviews",
+      "id": "behind",
+      "type": "bts",
       "enabled": true,
-      "navLabel": "Đánh giá",
+      "navLabel": "Hậu trường",
       "data": {
-        "title": "About 1000+ Positive Review",
-        "rating": 5,
-        "items": [
+        "title": "Behind the scenes",
+        "subtitle": "Hậu trường kỹ thuật",
+        "timelineImage": "https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=1200&q=80&auto=format&fit=crop",
+        "beforeImage": "https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?w=1200&q=80&auto=format&fit=crop&sat=-70&con=-45&exp=6",
+        "afterImage": "https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?w=1200&q=80&auto=format&fit=crop",
+        "beforeLabel": "LOG",
+        "afterLabel": "Color grade 4K",
+        "formats": [
           {
-            "name": "Minh Anh",
-            "role": "Marketing Manager",
-            "avatar": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&q=80&auto=format&fit=crop",
-            "text": "Video ra mắt sản phẩm vượt mong đợi, đúng deadline và cực kỳ chuyên nghiệp.",
-            "rating": 5
+            "url": "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+            "image": "",
+            "label": "Bản 16:9 (YouTube)",
+            "aspect": "16:9"
           },
           {
-            "name": "Quốc Bảo",
-            "role": "YouTuber",
-            "avatar": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&q=80&auto=format&fit=crop",
-            "text": "Edit nhanh, bắt trend tốt, view kênh tăng rõ rệt sau khi hợp tác.",
-            "rating": 5
+            "url": "",
+            "image": "https://images.unsplash.com/photo-1601506521937-0121a7fc2a6b?w=600&q=80&auto=format&fit=crop",
+            "label": "Bản 9:16 (TikTok/Reels)",
+            "aspect": "9:16"
           },
           {
-            "name": "Thu Trang",
-            "role": "Wedding Planner",
-            "avatar": "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&q=80&auto=format&fit=crop",
-            "text": "Phim cưới cảm xúc, màu đẹp, cô dâu chú rể xem xong đều khóc.",
-            "rating": 5
+            "url": "",
+            "image": "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=800&q=80&auto=format&fit=crop",
+            "label": "Bản 1:1 (Feed)",
+            "aspect": "1:1"
+          }
+        ],
+        "bts": [
+          {
+            "group": "Cảnh quay on-set & BTS",
+            "image": "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=800&q=80&auto=format&fit=crop",
+            "caption": "Setup máy quay",
+            "url": ""
           },
           {
-            "name": "Hoàng Long",
-            "role": "Founder, Startup",
-            "avatar": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80&auto=format&fit=crop",
-            "text": "Hiểu brief nhanh, góp ý sáng tạo và chỉnh sửa rất nhiệt tình.",
-            "rating": 5
+            "group": "Cảnh quay on-set & BTS",
+            "image": "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=800&q=80&auto=format&fit=crop",
+            "caption": "Slate từng cảnh",
+            "url": ""
           },
           {
-            "name": "Ngọc Hân",
-            "role": "Event Organizer",
-            "avatar": "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200&q=80&auto=format&fit=crop",
-            "text": "Quay sự kiện gọn gàng, highlight có ngay trong ngày.",
-            "rating": 5
-          },
-          {
-            "name": "Đức Huy",
-            "role": "Gamer / Streamer",
-            "avatar": "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&q=80&auto=format&fit=crop",
-            "text": "Montage gaming cực cháy, hiệu ứng mượt.",
-            "rating": 5
+            "group": "VFX & sound breakdown",
+            "image": "https://images.unsplash.com/photo-1590602847861-f357a9332bbc?w=800&q=80&auto=format&fit=crop",
+            "caption": "Thu âm & sound design",
+            "url": ""
           }
         ]
       }
@@ -290,69 +271,111 @@ values (1, $seed${
       "id": "contact",
       "type": "contact",
       "enabled": true,
-      "navLabel": "",
+      "navLabel": "Liên hệ",
       "data": {
-        "eyebrow": "Hợp tác",
-        "title": "Cùng tạo nên video tiếp theo",
-        "text": "Gửi ý tưởng của bạn, chúng tôi sẽ phản hồi trong vòng 24 giờ.",
-        "buttonText": "Gửi email"
+        "title": "Liên hệ & hợp tác",
+        "text": "Gửi ý tưởng hoặc brief của bạn, mình sẽ phản hồi trong vòng 24 giờ.",
+        "showForm": true,
+        "buttonText": "Gửi tin nhắn"
       }
     }
   ],
   "videos": [
     {
       "id": "v1",
+      "slug": "new-year-festival",
       "title": "New Year Festival",
-      "description": "Highlight sự kiện năm mới",
+      "description": "Lead Editor, Colorist",
       "url": "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
       "thumbnail": "",
-      "category": "Sự kiện",
-      "visible": true
+      "category": "TVC / Commercial",
+      "visible": true,
+      "client": "Thương hiệu ABC",
+      "role": "Lead Editor, Colorist",
+      "software": "DaVinci Resolve, Premiere Pro",
+      "equipment": "Sony FX6, DJI Ronin",
+      "year": "2026",
+      "summary": "Video highlight sự kiện năm mới: dựng nhịp nhanh theo beat nhạc, chỉnh màu ấm và xuất nhiều phiên bản cho YouTube, TikTok và Reels."
     },
     {
       "id": "v2",
+      "slug": "office-special-event",
       "title": "Office Special Event",
-      "description": "Year End Party công ty",
+      "description": "Editor",
       "url": "https://www.youtube.com/watch?v=eRsGyueVLvQ",
       "thumbnail": "",
-      "category": "Sự kiện",
-      "visible": true
+      "category": "TVC / Commercial",
+      "visible": true,
+      "client": "",
+      "role": "Editor",
+      "software": "",
+      "equipment": "",
+      "year": "",
+      "summary": ""
     },
     {
       "id": "v3",
+      "slug": "school-trip",
       "title": "School Trip",
-      "description": "Kỷ niệm dã ngoại",
+      "description": "Editor, Colorist",
       "url": "https://www.youtube.com/watch?v=R6MlUcmOul8",
       "thumbnail": "",
-      "category": "Vlog",
-      "visible": true
+      "category": "Short film",
+      "visible": true,
+      "client": "",
+      "role": "Editor, Colorist",
+      "software": "",
+      "equipment": "",
+      "year": "",
+      "summary": ""
     },
     {
       "id": "v4",
+      "slug": "cooking-channel",
       "title": "Cooking Channel",
-      "description": "Series nấu ăn cho YouTube",
+      "description": "Editor",
       "url": "https://www.youtube.com/watch?v=WhWc3b3KhnY",
       "thumbnail": "",
-      "category": "YouTube",
-      "visible": true
+      "category": "Music video",
+      "visible": true,
+      "client": "",
+      "role": "Editor",
+      "software": "",
+      "equipment": "",
+      "year": "",
+      "summary": ""
     },
     {
       "id": "v5",
+      "slug": "memories-album",
       "title": "Memories Album",
-      "description": "Phim kỷ niệm gia đình",
+      "description": "Editor, Colorist",
       "url": "https://www.youtube.com/watch?v=_cMxraX_5RE",
       "thumbnail": "",
-      "category": "Vlog",
-      "visible": true
+      "category": "Short film",
+      "visible": true,
+      "client": "",
+      "role": "Editor, Colorist",
+      "software": "",
+      "equipment": "",
+      "year": "",
+      "summary": ""
     },
     {
       "id": "v6",
+      "slug": "gaming-video",
       "title": "Gaming Video",
-      "description": "Montage gaming",
+      "description": "Editor, VFX",
       "url": "https://www.youtube.com/watch?v=mN0zPOpADL4",
       "thumbnail": "",
-      "category": "YouTube",
-      "visible": true
+      "category": "Music video",
+      "visible": true,
+      "client": "",
+      "role": "Editor, VFX",
+      "software": "",
+      "equipment": "",
+      "year": "",
+      "summary": ""
     }
   ]
 }$seed$::jsonb, 'setup')
@@ -362,3 +385,32 @@ on conflict (id) do nothing;
 insert into public.portfolio_admins (email, role, label)
 values ('admin@thanhhaivideo.com', 'root', 'Quản trị')
 on conflict (email) do nothing;
+
+-- 8. Tin nhắn từ form "Liên hệ & hợp tác" trên web
+--    Ai cũng gửi được (giới hạn độ dài), chỉ admin xem / đánh dấu đã đọc / xoá (tab Tin nhắn trong /admin)
+create table if not exists public.contact_messages (
+  id bigint generated always as identity primary key,
+  created_at timestamptz not null default now(),
+  name text not null check (char_length(name) between 1 and 120),
+  email text not null check (char_length(email) between 3 and 200 and email like '%@%'),
+  message text not null check (char_length(message) between 1 and 5000),
+  project text check (char_length(project) <= 200),
+  is_read boolean not null default false
+);
+alter table public.contact_messages enable row level security;
+
+drop policy if exists "Mọi người gửi tin nhắn" on public.contact_messages;
+create policy "Mọi người gửi tin nhắn" on public.contact_messages
+  for insert to anon, authenticated with check (is_read = false);
+drop policy if exists "Admin xem tin nhắn" on public.contact_messages;
+create policy "Admin xem tin nhắn" on public.contact_messages
+  for select to authenticated using (public.is_portfolio_admin());
+drop policy if exists "Admin sửa tin nhắn" on public.contact_messages;
+create policy "Admin sửa tin nhắn" on public.contact_messages
+  for update to authenticated using (public.is_portfolio_admin()) with check (public.is_portfolio_admin());
+drop policy if exists "Admin xoá tin nhắn" on public.contact_messages;
+create policy "Admin xoá tin nhắn" on public.contact_messages
+  for delete to authenticated using (public.is_portfolio_admin());
+
+grant insert (name, email, message, project) on public.contact_messages to anon, authenticated;
+grant select, update, delete on public.contact_messages to authenticated;
